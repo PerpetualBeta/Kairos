@@ -33,6 +33,11 @@ struct LaunchdJob: Identifiable, Hashable {
     /// What this app wrote, if it wrote it. Lets the editor reopen an "app schedule" as an app schedule
     /// rather than as a raw command, without guessing from the arguments.
     var kairosKind: String? { raw["cc.jorviksoftware.Kairos.kind"] as? String }
+    /// Which app-schedule this job belongs to, if any. The launch, quit and guard jobs of one schedule all
+    /// carry the same pair, which is what lets the UI treat three plists as one thing.
+    var kairosPair: String? { raw["cc.jorviksoftware.Kairos.pair"] as? String }
+    var kairosAppName: String? { raw["cc.jorviksoftware.Kairos.appName"] as? String }
+    var isAppSchedule: Bool { kairosKind?.hasPrefix("app") ?? false }
 
     // ── description ─────────────────────────────────────────────────────────
     var commandSummary: String {

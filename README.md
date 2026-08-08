@@ -51,6 +51,12 @@ quit time. Kairos writes both jobs and presents them as one thing.
 The launch and the quit have **independent days**, so a schedule can span them: launch Friday at 16:00,
 quit Monday at 09:00, and the app runs across the whole weekend.
 
+An app schedule shows whether its window is currently **open** — whether the app is *due* to be running,
+which is a different question from whether it happens to be running — with **Close Window Now** and **Open
+Window Now** beside it. Closing is what makes quitting a kept-alive app by hand actually stick; without it
+the guard restores the app at the next check, which is correct and maddening. Closing the window does not
+quit the app, and the pane says so.
+
 **Keeping it running** is offered there too, and it is deliberately *not* launchd's `KeepAlive`. That key on
 the launch job would watch `open` — which exits the instant the app is up — and relaunch it in a tight loop
 forever. "Keep this process alive" and "keep that application running" are different requests, and only the

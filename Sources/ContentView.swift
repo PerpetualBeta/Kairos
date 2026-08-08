@@ -113,6 +113,10 @@ struct JobDetail: View {
                         if let pid = status.pid { badge("Running · pid \(pid)", .green) }
                         if status.failed, let e = status.lastExitStatus { badge("Last exit \(e)", .red) }
                         if let r = status.runs { badge(r == 0 ? "Never run" : "Run \(r)×", r == 0 ? .orange : .secondary) }
+                        if job.isAppSchedule, let pair = job.kairosPair {
+                            badge(JobBuilder.windowIsOpen(pair) ? "Window open" : "Window closed",
+                                  JobBuilder.windowIsOpen(pair) ? .blue : .secondary)
+                        }
                     }
                 }
 
@@ -129,6 +133,29 @@ struct JobDetail: View {
                 field("Plist", job.url.path)
                 if let o = job.standardOutPath { field("Output log", o) }
                 if let e = job.standardErrorPath { field("Error log", e) }
+
+                if job.isAppSchedule, let pair = job.kairosPair {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 10) {
+                            if JobBuilder.windowIsOpen(pair) {
+                                Button("Close Window Now") {
+                                    store.perform(job.label) { JobBuilder.closeWindow(pair) }
+                                }
+                            } else {
+                                Button("Open Window Now") {
+                                    store.perform(job.label) { JobBuilder.openWindow(pair) }
+                                }
+                            }
+                            Spacer()
+                        }
+                        Text(JobBuilder.windowIsOpen(pair)
+                             ? "\(job.kairosAppName ?? "This app") is due to be running, so the guard will restart it if it stops. Closing the window stops that — it does not quit the app."
+                             : "Not due to be running. Opening the window starts the schedule early; the guard will launch it at the next check.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .padding(10)
+                    .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 6))
+                }
 
                 HStack(spacing: 10) {
                     Button(status.loaded ? "Unload" : "Load") {

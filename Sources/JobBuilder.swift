@@ -74,6 +74,31 @@ enum JobBuilder {
     static var markerDirectory: String { "\(NSHomeDirectory())/Library/Application Support/Kairos/windows" }
     static func markerPath(_ pairID: String) -> String { "\(markerDirectory)/\(pairID)" }
 
+    /// Is this app currently *due* to be running? Distinct from whether it happens to be running: the window
+    /// is the schedule's intent, and the guard is what reconciles the two.
+    static func windowIsOpen(_ pairID: String) -> Bool {
+        FileManager.default.fileExists(atPath: markerPath(pairID))
+    }
+
+    /// Close it by hand. Without this, quitting a kept-alive app yourself achieves nothing — the guard
+    /// restores it within the check interval, which is correct behaviour and infuriating if it is not what
+    /// you meant. The app is left alone: this says "stop expecting it to be running", not "kill it".
+    static func closeWindow(_ pairID: String) -> String? {
+        do { try FileManager.default.removeItem(atPath: markerPath(pairID)); return nil }
+        catch CocoaError.fileNoSuchFile { return nil }          // already closed is success, not an error
+        catch { return error.localizedDescription }
+    }
+
+    /// And open it early, so a schedule can be started before its time without editing the times.
+    static func openWindow(_ pairID: String) -> String? {
+        do {
+            try FileManager.default.createDirectory(atPath: markerDirectory,
+                                                    withIntermediateDirectories: true)
+            try Date().description.write(toFile: markerPath(pairID), atomically: true, encoding: .utf8)
+            return nil
+        } catch { return error.localizedDescription }
+    }
+
     /// `open -a` rather than executing the binary inside the bundle directly: `open` hands the launch to
     /// the window server in the user's session, which is what actually makes a GUI app appear. Running
     /// `Foo.app/Contents/MacOS/Foo` from launchd gets you a process with no session and often no window.
