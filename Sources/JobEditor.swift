@@ -39,6 +39,11 @@ struct JobEditor: View {
     @State private var forceQuit = false
     @State private var quitHour = 18
     @State private var quitMinute = 30
+    /// The quit's own days, independent of the launch's. Sharing one set makes "start Friday evening, stop
+    /// Monday morning" impossible to express, which is the commonest thing anyone actually wants.
+    @State private var quitWeekdays: Set<Int> = []
+    @State private var keepAlive = false
+    @State private var keepAliveMinutes = 5
 
     // shared schedule
     @State private var kind: JobBuilder.Schedule.Kind = .daily
@@ -82,12 +87,29 @@ struct JobEditor: View {
                         Toggle("Quit it again later", isOn: $quitEnabled)
                         if quitEnabled {
                             timeRow("Time", hour: $quitHour, minute: $quitMinute)
+                            dayRow(selection: $quitWeekdays, emptyLabel: "same day it launched")
                             Toggle("Force quit if it refuses", isOn: $forceQuit)
                             // Say the cost out loud at the point of choosing, not in a manual.
                             Text(forceQuit
                                  ? "Waits five seconds for a clean quit, then kills it. An unsaved document will be lost."
                                  : "A graceful quit can be refused — an app with unsaved changes will put up a dialog and stay open.")
                                 .font(.caption).foregroundStyle(forceQuit ? .orange : .secondary)
+                        }
+                    }
+
+                    Section("While it should be running") {
+                        Toggle("Restart it if it stops", isOn: $keepAlive)
+                        if keepAlive {
+                            HStack {
+                                Text("Check every")
+                                TextField("", value: $keepAliveMinutes, format: .number).frame(width: 60)
+                                Text("minutes")
+                            }
+                            Text("Kairos marks the app as due to be running between the launch and the quit, "
+                               + "even across days, and restarts it if it is not. This is not launchd's own "
+                               + "KeepAlive, which would watch the launcher rather than the app and relaunch "
+                               + "it in a loop forever.")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -133,16 +155,18 @@ struct JobEditor: View {
         }
     }
 
-    private var weekdayRow: some View {
+    private var weekdayRow: some View { dayRow(selection: $weekdays, emptyLabel: "every day") }
+
+    private func dayRow(selection: Binding<Set<Int>>, emptyLabel: String) -> some View {
         HStack(spacing: 4) {
             Text("Days").frame(width: 44, alignment: .leading)
             ForEach(0..<7, id: \.self) { d in
                 Toggle(String(LaunchdJob.weekdayNames[d].prefix(2)), isOn: Binding(
-                    get: { weekdays.contains(d) },
-                    set: { on in if on { weekdays.insert(d) } else { weekdays.remove(d) } }))
+                    get: { selection.wrappedValue.contains(d) },
+                    set: { on in if on { selection.wrappedValue.insert(d) } else { selection.wrappedValue.remove(d) } }))
                 .toggleStyle(.button).controlSize(.small)
             }
-            Text(weekdays.isEmpty ? "every day" : "").font(.caption).foregroundStyle(.secondary)
+            Text(selection.wrappedValue.isEmpty ? emptyLabel : "").font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -199,17 +223,29 @@ struct JobEditor: View {
                                                  pairID: pair, schedule: schedule)
                 written.append(try write(launch, in: dir))
 
-                var quitSchedule = schedule
+                var quitSchedule = JobBuilder.Schedule()
                 quitSchedule.kind = .daily            // a quit at an interval makes no sense
                 quitSchedule.hour = quitHour; quitSchedule.minute = quitMinute
+                // Its OWN days. Empty means "whichever day the launch fired", which for a same-day schedule
+                // is what you want and for a weekend-long one is not — hence the separate picker.
+                quitSchedule.weekdays = quitWeekdays.isEmpty ? weekdays : quitWeekdays
                 let quitURL = dir.appendingPathComponent("\(JobBuilder.quitLabel(pair)).plist")
                 if quitEnabled {
-                    let quit = JobBuilder.appQuit(appName: appName, pairID: pair,
+                    let quit = JobBuilder.appQuit(appName: appName, appPath: appPath, pairID: pair,
                                                  schedule: quitSchedule, force: forceQuit)
                     written.append(try write(quit, in: dir))
                 } else if FileManager.default.fileExists(atPath: quitURL.path) {
                     // Turning the quit off must remove the job, not merely stop showing it.
                     if let j = LaunchdJob.load(from: quitURL) { _ = LaunchdService.delete(j) }
+                }
+
+                let kaURL = dir.appendingPathComponent("\(JobBuilder.keepAliveLabel(pair)).plist")
+                if keepAlive {
+                    let ka = JobBuilder.appKeepAlive(appName: appName, appPath: appPath,
+                                                    pairID: pair, everyMinutes: keepAliveMinutes)
+                    written.append(try write(ka, in: dir))
+                } else if FileManager.default.fileExists(atPath: kaURL.path) {
+                    if let j = LaunchdJob.load(from: kaURL) { _ = LaunchdService.delete(j) }
                 }
                 for j in written { if let e = LaunchdService.reload(j) { error = e } }
             } else {

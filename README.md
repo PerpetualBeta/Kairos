@@ -48,6 +48,17 @@ Kairos reads that database separately and shows *Disabled* as its own state, wit
 The second creation mode, and the one no generic plist editor has. Pick an app, pick a launch time and a
 quit time. Kairos writes both jobs and presents them as one thing.
 
+The launch and the quit have **independent days**, so a schedule can span them: launch Friday at 16:00,
+quit Monday at 09:00, and the app runs across the whole weekend.
+
+**Keeping it running** is offered there too, and it is deliberately *not* launchd's `KeepAlive`. That key on
+the launch job would watch `open` — which exits the instant the app is up — and relaunch it in a tight loop
+forever. "Keep this process alive" and "keep that application running" are different requests, and only the
+second is ever what anyone means. Instead the launch job opens a **window**: a marker file saying the app is
+due to be running. The quit job closes it. A small guard checks on an interval, and restarts the app only if
+the window is open and the app is not there. No clock arithmetic, survives reboots, and multi-day windows
+fall out for free.
+
 Two details it gets right on your behalf:
 
 - **Launching uses `open -a`**, not the binary inside the bundle. `open` hands the launch to the window

@@ -59,13 +59,33 @@ enum JobBuilder {
     }
 
     // ── mode 2: schedule an application ─────────────────────────────────────
+    /// Where the "this app is supposed to be running" markers live. A file rather than state inside Kairos,
+    /// deliberately: the jobs run whether or not Kairos is open, and must not depend on it.
+    /// Single-quote for `/bin/sh`. Paths are user data — "/Applications/Bob's App.app" would otherwise close
+    /// the quote and hand the rest of the path to the shell as code. The POSIX idiom for an embedded single
+    /// quote is to close, escape one, and reopen.
+    static func shq(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+
+    /// And for an AppleScript string literal, where the hazards are the double quote and the backslash.
+    static func asq(_ s: String) -> String {
+        s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+    }
+
+    static var markerDirectory: String { "\(NSHomeDirectory())/Library/Application Support/Kairos/windows" }
+    static func markerPath(_ pairID: String) -> String { "\(markerDirectory)/\(pairID)" }
+
     /// `open -a` rather than executing the binary inside the bundle directly: `open` hands the launch to
     /// the window server in the user's session, which is what actually makes a GUI app appear. Running
     /// `Foo.app/Contents/MacOS/Foo` from launchd gets you a process with no session and often no window.
+    ///
+    /// It also OPENS THE WINDOW — the marker file that says this app is meant to be running until the quit
+    /// job removes it. That is what lets a schedule span days, and what the keep-alive guard tests.
     static func appLaunch(appName: String, appPath: String, pairID: String, schedule: Schedule) -> [String: Any] {
+        let sh = "mkdir -p \(shq(markerDirectory)) && date > \(shq(markerPath(pairID))) && "
+               + "/usr/bin/open -a \(shq(appPath))"
         var d: [String: Any] = [
             "Label": launchLabel(pairID),
-            "ProgramArguments": ["/usr/bin/open", "-a", appPath],
+            "ProgramArguments": ["/bin/sh", "-c", sh],
             kindKey: "app-launch",
             pairKey: pairID,
             "cc.jorviksoftware.Kairos.appName": appName,
@@ -74,17 +94,44 @@ enum JobBuilder {
         return d
     }
 
+    /// KEEP IT RUNNING, and note what this is NOT: launchd's own `KeepAlive` on the launch job. That job is
+    /// `open`, which exits the moment the app is up — so `KeepAlive` there would have launchd relaunching
+    /// `open` in a tight loop forever. "Keep this process alive" and "keep that application running" are
+    /// different requests, and only the second one is ever what someone means here.
+    ///
+    /// So: a small guard on an interval. If the window is open and the app is not running, start it. The
+    /// `pgrep -f` matches the executable's full path rather than a process name, because a bundle's
+    /// executable is often not called what the app is called.
+    static func appKeepAlive(appName: String, appPath: String, pairID: String,
+                             everyMinutes: Int) -> [String: Any] {
+        let sh = "[ -f \(shq(markerPath(pairID))) ] || exit 0; "
+               + "/usr/bin/pgrep -f \(shq(appPath + "/Contents/MacOS/")) > /dev/null && exit 0; "
+               + "/usr/bin/open -a \(shq(appPath))"
+        return [
+            "Label": keepAliveLabel(pairID),
+            "ProgramArguments": ["/bin/sh", "-c", sh],
+            "StartInterval": max(1, everyMinutes) * 60,
+            kindKey: "app-keepalive",
+            pairKey: pairID,
+            "cc.jorviksoftware.Kairos.appName": appName,
+        ]
+    }
+
     /// Quit via an AppleEvent, not `kill`. A graceful quit lets the app save and close cleanly — and it can
     /// also be REFUSED, by an app with an unsaved document or a modal sheet. Kairos does not force by
     /// default: silently destroying someone's unsaved work to keep to a schedule is the wrong trade. The
     /// editor offers a force fallback as an explicit choice.
-    static func appQuit(appName: String, pairID: String, schedule: Schedule, force: Bool) -> [String: Any] {
-        let script = force
-            ? "tell application \"\(appName)\" to quit\ndelay 5\ntell application \"System Events\" to if exists process \"\(appName)\" then do shell script \"pkill -f '\(appName)'\""
-            : "tell application \"\(appName)\" to quit"
+    static func appQuit(appName: String, appPath: String, pairID: String,
+                        schedule: Schedule, force: Bool) -> [String: Any] {
+        let quit = "/usr/bin/osascript -e " + shq("tell application \"\(asq(appName))\" to quit")
+        let exe = shq(appPath + "/Contents/MacOS/")
+        let forceTail = " ; sleep 5; /usr/bin/pgrep -f \(exe) > /dev/null && /usr/bin/pkill -f \(exe)"
+        // Close the window FIRST. If the marker outlived the quit, the keep-alive guard would helpfully
+        // relaunch the app seconds after it was asked to stop — the two jobs fighting each other forever.
+        let sh = "rm -f \(shq(markerPath(pairID))); " + quit + (force ? forceTail : "")
         var d: [String: Any] = [
             "Label": quitLabel(pairID),
-            "ProgramArguments": ["/usr/bin/osascript", "-e", script],
+            "ProgramArguments": ["/bin/sh", "-c", sh],
             kindKey: "app-quit",
             pairKey: pairID,
             "cc.jorviksoftware.Kairos.appName": appName,
@@ -95,6 +142,7 @@ enum JobBuilder {
 
     static func launchLabel(_ pairID: String) -> String { "cc.jorviksoftware.Kairos.\(pairID).launch" }
     static func quitLabel(_ pairID: String) -> String { "cc.jorviksoftware.Kairos.\(pairID).quit" }
+    static func keepAliveLabel(_ pairID: String) -> String { "cc.jorviksoftware.Kairos.\(pairID).keepalive" }
 
     static func slug(_ s: String) -> String {
         let allowed = CharacterSet.alphanumerics
