@@ -1,0 +1,16 @@
+.build/
+.DS_Store
+AppIcon.iconset/
+*.swiftmodule
+
+# Build artefacts
+Kairos.app
+build/
+Info.plist.bak
+
+# Vendored framework — release.mk re-embeds it from jorvik-release; never commit a copy.
+Sparkle.framework
+
+# Claude Code local worktree state
+.claude/worktrees/
+.build-shipcheck/
