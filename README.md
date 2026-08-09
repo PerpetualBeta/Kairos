@@ -51,10 +51,22 @@ quit time. Kairos writes both jobs and presents them as one thing.
 The launch and the quit have **independent days**, so a schedule can span them: launch Friday at 16:00,
 quit Monday at 09:00, and the app runs across the whole weekend.
 
-An app schedule shows whether it is currently **due to run** — a different question from whether the app
-happens to be running — with **End Early** and **Start Early** beside it. Ending early is what makes quitting
-a kept-alive app by hand actually stick; without it the guard restores the app at the next check, which is
-correct and maddening. Ending early does not quit the app, and the pane says so.
+An app schedule shows **four states**, from two independent facts — whether it is *due* to run, and whether
+the app *is* running:
+
+| | due | not due |
+|---|---|---|
+| **running** | Running | Running, outside its schedule |
+| **not running** | **Should be running — it is not** | Next run Mon 09:00 |
+
+Only the orange one means anything is wrong, and it is the reason for showing the two facts rather than one.
+Telling you an app *should* be running is guesswork when the answer is available for the asking; telling you
+it should be and **is not** is the thing worth interrupting you for. The running state is read from
+`NSWorkspace` when an app starts or stops, so the badge is current rather than as-of-the-last-refresh.
+
+**End Early** and **Start Early** sit beside it. Ending early is what makes quitting a kept-alive app by hand
+actually stick; without it the guard restores the app at the next check, which is correct and maddening.
+Ending early does not quit the app, and the pane says so.
 
 **Keeping it running** is offered there too, and it is deliberately *not* launchd's `KeepAlive`. That key on
 the launch job would watch `open` — which exits the instant the app is up — and relaunch it in a tight loop

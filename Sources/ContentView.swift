@@ -13,6 +13,37 @@ final class JobStore {
     var schedules: [AppSchedule] = []
     var plain: [LaunchdJob] = []
 
+    /// Which scheduled apps are running RIGHT NOW. Held here rather than computed in the view so that the
+    /// badge changes the moment an app starts or stops, instead of whenever the list is next rebuilt.
+    var runningPairs: Set<String> = []
+    private var appObservers: [NSObjectProtocol] = []
+
+    /// Event-driven, not polled. `NSWorkspace` says exactly when an application appears or goes away, so
+    /// there is no reason to ask on a timer — and a timer would either lag the truth or spend a wake-up a
+    /// second to learn nothing.
+    init() {
+        let nc = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didLaunchApplicationNotification,
+                     NSWorkspace.didTerminateApplicationNotification] {
+            appObservers.append(nc.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.refreshRunning()
+            })
+        }
+    }
+
+    deinit { appObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) } }
+
+    func refreshRunning() {
+        let live = Set(NSWorkspace.shared.runningApplications.compactMap {
+            $0.bundleURL?.standardizedFileURL.path
+        })
+        runningPairs = Set(schedules.filter { s in
+            s.normalisedAppPath.map(live.contains) ?? false
+        }.map(\.pair))
+    }
+
+    func isRunning(_ sch: AppSchedule) -> Bool { runningPairs.contains(sch.pair) }
+
     func reload() {
         jobs = LaunchdService.jobs()
         schedules = AppSchedule.group(jobs)
@@ -21,6 +52,7 @@ final class JobStore {
         var s: [String: JobStatus] = [:]
         for j in jobs { s[j.label] = LaunchdService.status(of: j.label, disabled: disabled) }
         statuses = s
+        refreshRunning()
     }
 
     /// A schedule is as loaded/failed as its worst job. Rolling three states into one is the point of the
@@ -87,7 +119,7 @@ struct ContentView: View {
                     }
                 case .apps:
                     List(store.schedules, selection: $selectedSchedule) { sch in
-                        ScheduleRow(schedule: sch, status: store.rollup(sch)).tag(sch)
+                        ScheduleRow(schedule: sch, status: store.rollup(sch), running: store.isRunning(sch)).tag(sch)
                     }
                     .overlay {
                         if store.schedules.isEmpty {
@@ -108,7 +140,8 @@ struct ContentView: View {
                 }
             case .apps:
                 if let sch = selectedSchedule, let live = store.schedules.first(where: { $0.pair == sch.pair }) {
-                    ScheduleDetail(schedule: live, status: store.rollup(live), store: store, editing: $editing)
+                    ScheduleDetail(schedule: live, status: store.rollup(live), running: store.isRunning(live),
+                               store: store, editing: $editing)
                 } else {
                     ContentUnavailableView("Select a scheduled app", systemImage: "sidebar.left")
                 }
@@ -179,10 +212,6 @@ struct JobDetail: View {
                         if let pid = status.pid { badge("Running · pid \(pid)", .green) }
                         if status.failed, let e = status.lastExitStatus { badge("Last exit \(e)", .red) }
                         if let r = status.runs { badge(r == 0 ? "Never run" : "Run \(r)×", r == 0 ? .orange : .secondary) }
-                        if job.isAppSchedule, let pair = job.kairosPair {
-                            badge(JobBuilder.isDueToRun(pair) ? "Due to run" : "Not due to run",
-                                  JobBuilder.isDueToRun(pair) ? .blue : .secondary)
-                        }
                     }
                 }
 
@@ -200,28 +229,6 @@ struct JobDetail: View {
                 if let o = job.standardOutPath { field("Output log", o) }
                 if let e = job.standardErrorPath { field("Error log", e) }
 
-                if job.isAppSchedule, let pair = job.kairosPair {
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 10) {
-                            if JobBuilder.isDueToRun(pair) {
-                                Button("End Early") {
-                                    store.perform(job.label) { JobBuilder.endEarly(pair) }
-                                }
-                            } else {
-                                Button("Start Early") {
-                                    store.perform(job.label) { JobBuilder.startEarly(pair) }
-                                }
-                            }
-                            Spacer()
-                        }
-                        Text(JobBuilder.isDueToRun(pair)
-                             ? "\(job.kairosAppName ?? "This app") is due to be running until its quit time, so it will be restarted if it stops. Ending early stops that — it does not quit the app."
-                             : "Not due to run until its next launch time. Starting early brings that forward; it will be launched at the next check.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    .padding(10)
-                    .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 6))
-                }
 
                 HStack(spacing: 10) {
                     Button(status.loaded ? "Unload" : "Load") {
@@ -285,6 +292,7 @@ struct JobDetail: View {
 struct ScheduleRow: View {
     let schedule: AppSchedule
     let status: JobStatus
+    let running: Bool
 
     var body: some View {
         HStack(spacing: 8) {
@@ -300,8 +308,7 @@ struct ScheduleRow: View {
     private var tint: Color {
         if status.disabled { return .orange }
         if status.failed { return .red }
-        if schedule.isDueToRun { return .blue }
-        return status.loaded ? .secondary : .gray.opacity(0.4)
+        return scheduleTint(schedule.state(running: running), loaded: status.loaded)
     }
 }
 
@@ -313,6 +320,7 @@ struct ScheduleRow: View {
 struct ScheduleDetail: View {
     let schedule: AppSchedule
     let status: JobStatus
+    let running: Bool
     let store: JobStore
     @Binding var editing: EditorSeed?
 
@@ -325,7 +333,8 @@ struct ScheduleDetail: View {
                         badge(status.loaded ? "Loaded" : "Not loaded", status.loaded ? .green : .secondary)
                         if status.disabled { badge("Disabled", .orange) }
                         if status.failed, let e = status.lastExitStatus { badge("Last exit \(e)", .red) }
-                        badge(schedule.stateLabel, schedule.isDueToRun ? .blue : .secondary)
+                        badge(schedule.stateLabel(running: running),
+                              scheduleTint(schedule.state(running: running), loaded: status.loaded))
                     }
                 }
 
@@ -338,10 +347,7 @@ struct ScheduleDetail: View {
                         }
                         Spacer()
                     }
-                    Text(schedule.isDueToRun
-                         ? "\(schedule.appName) should be running right now and will be restarted if it stops. Ending early stops that — it does not quit the app."
-                         : "\(schedule.appName) is scheduled, but its run has not started yet. Starting early brings it forward without changing the schedule.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Text(caption).font(.caption).foregroundStyle(.secondary)
                 }
                 .padding(10)
                 .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 6))
@@ -389,6 +395,26 @@ struct ScheduleDetail: View {
         }
     }
 
+    /// Says what is true first, then what the button beside it will do. The End/Start Early control is the
+    /// thing being explained, so each case has to make sense of pressing it in that state.
+    private var caption: String {
+        switch schedule.state(running: running) {
+        case .running:
+            return "\(schedule.appName) is running and due to be, so it will be restarted if it stops. "
+                 + "Ending early stops that — it does not quit the app."
+        case .shouldBeRunning:
+            return "\(schedule.appName) is due to be running but is not. If it is kept running it will be "
+                 + "started again at the next check; otherwise nothing will start it until its next launch "
+                 + "time. Ending early cancels the rest of this run."
+        case .runningUnscheduled:
+            return "\(schedule.appName) is running outside its scheduled hours — opened by hand, or left "
+                 + "over from an earlier run. Its quit job will still close it at the scheduled time."
+        case .idle:
+            return "\(schedule.appName) is scheduled, but its run has not started yet. Starting early "
+                 + "brings it forward without changing the schedule."
+        }
+    }
+
     private func field(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label).font(.caption).foregroundStyle(.secondary)
@@ -401,5 +427,18 @@ struct ScheduleDetail: View {
             .padding(.horizontal, 7).padding(.vertical, 3)
             .background(colour.opacity(0.15), in: Capsule())
             .foregroundStyle(colour)
+    }
+}
+
+/// The four states, coloured. Shared by the sidebar dot and the detail badge so the two can never drift.
+///
+/// Orange is the only alarming one, and deliberately so: an app that is due to be running and is not is the
+/// single state here that means something has gone wrong.
+func scheduleTint(_ state: AppSchedule.State, loaded: Bool) -> Color {
+    switch state {
+    case .running: return .green
+    case .shouldBeRunning: return .orange
+    case .runningUnscheduled: return .blue
+    case .idle: return loaded ? .secondary : .gray.opacity(0.4)
     }
 }

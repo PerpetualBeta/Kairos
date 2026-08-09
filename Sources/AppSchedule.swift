@@ -51,20 +51,47 @@ struct AppSchedule: Identifiable, Hashable {
         }.min()
     }
 
-    /// The badge, and it must be about NOW.
+    /// The badge. FOUR states, because "due" and "running" are independent facts and the interesting cases
+    /// are the two where they disagree.
     ///
-    /// "Due to run" read as a future obligation for an app that was already inside its window, and "Not due
-    /// to run" read as *not scheduled at all* for one that simply had not started yet. Both were about the
-    /// present and neither said so. Naming the next start removes the second misreading entirely.
-    var stateLabel: String {
-        if isDueToRun { return "Should be running now" }
-        guard let next = nextLaunch else { return "Not running now" }
-        let cal = Calendar.current
-        let f = DateFormatter()
-        if cal.isDateInToday(next) { f.dateFormat = "'Today' HH:mm" }
-        else if cal.isDateInTomorrow(next) { f.dateFormat = "'Tomorrow' HH:mm" }
-        else { f.dateFormat = "EEE HH:mm" }
-        return "Next run \(f.string(from: next))"
+    /// Reporting "Should be running now" for an app that plainly WAS running stated the schedule's intent
+    /// when the fact itself was there for the asking. Intent is only worth showing when it differs from
+    /// reality — and then it is worth showing loudly, because a disagreement means something is wrong.
+    ///
+    /// `running` comes from the store rather than being read here, so that the badge updates when the app
+    /// starts or stops rather than only when the list is next rebuilt.
+    enum State { case running, shouldBeRunning, runningUnscheduled, idle }
+
+    func state(running: Bool) -> State {
+        switch (isDueToRun, running) {
+        case (true, true):   return .running
+        case (true, false):  return .shouldBeRunning      // the guard has not caught up, or there is none
+        case (false, true):  return .runningUnscheduled   // opened by hand, or outside its hours
+        case (false, false): return .idle
+        }
+    }
+
+    func stateLabel(running: Bool) -> String {
+        switch state(running: running) {
+        case .running: return "Running"
+        case .shouldBeRunning: return "Should be running — it is not"
+        case .runningUnscheduled: return "Running, outside its schedule"
+        case .idle:
+            guard let next = nextLaunch else { return "Not running" }
+            let cal = Calendar.current
+            let f = DateFormatter()
+            if cal.isDateInToday(next) { f.dateFormat = "'Today' HH:mm" }
+            else if cal.isDateInTomorrow(next) { f.dateFormat = "'Tomorrow' HH:mm" }
+            else { f.dateFormat = "EEE HH:mm" }
+            return "Next run \(f.string(from: next))"
+        }
+    }
+
+    /// The bundle path this schedule launches, normalised for comparison against a running application.
+    /// Matched on path rather than name: two apps can share a display name, and a bundle's executable is
+    /// frequently not called what the app is called.
+    var normalisedAppPath: String? {
+        appPath.isEmpty ? nil : URL(fileURLWithPath: appPath).standardizedFileURL.path
     }
 
     /// Group whatever is on disk into schedules. Tolerant on purpose: a schedule whose quit job has been
