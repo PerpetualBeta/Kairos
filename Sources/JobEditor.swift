@@ -87,7 +87,7 @@ struct JobEditor: View {
                         Toggle("Quit it again later", isOn: $quitEnabled)
                         if quitEnabled {
                             timeRow("Time", hour: $quitHour, minute: $quitMinute)
-                            dayRow(selection: $quitWeekdays, emptyLabel: "same day it launched")
+                            dayRow(selection: $quitWeekdays, emptyLabel: "same day it launched", id: "quit")
                             Toggle("Force quit if it refuses", isOn: $forceQuit)
                             // Say the cost out loud at the point of choosing, not in a manual.
                             Text(forceQuit
@@ -155,9 +155,15 @@ struct JobEditor: View {
         }
     }
 
-    private var weekdayRow: some View { dayRow(selection: $weekdays, emptyLabel: "every day") }
+    private var weekdayRow: some View {
+        dayRow(selection: $weekdays, emptyLabel: "every day", id: "launch")
+    }
 
-    private func dayRow(selection: Binding<Set<Int>>, emptyLabel: String) -> some View {
+    /// The two day rows are built by the same function, which made them structurally identical siblings —
+    /// and SwiftUI diffed them as the same view. The quit row then failed to establish its bindings on first
+    /// build and stayed blank until toggling "Quit it again later" forced the branch to rebuild. An explicit
+    /// `id` gives each row its own identity, which is what was actually missing.
+    private func dayRow(selection: Binding<Set<Int>>, emptyLabel: String, id: String) -> some View {
         HStack(spacing: 4) {
             Text("Days").frame(width: 44, alignment: .leading)
             ForEach(0..<7, id: \.self) { d in
@@ -165,9 +171,11 @@ struct JobEditor: View {
                     get: { selection.wrappedValue.contains(d) },
                     set: { on in if on { selection.wrappedValue.insert(d) } else { selection.wrappedValue.remove(d) } }))
                 .toggleStyle(.button).controlSize(.small)
+                .id("\(id)-\(d)")
             }
             Text(selection.wrappedValue.isEmpty ? emptyLabel : "").font(.caption).foregroundStyle(.secondary)
         }
+        .id(id)
     }
 
     private func timeRow(_ title: String, hour: Binding<Int>, minute: Binding<Int>) -> some View {

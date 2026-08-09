@@ -75,6 +75,18 @@ Two details it gets right on your behalf:
   the point you choose, and offers a force fallback as an explicit decision rather than a default. Silently
   destroying unsaved work to keep to a schedule is the wrong trade.
 
+## The Dock icon tells the time
+
+While Kairos is running, its Dock icon is the real clock — redrawn on the minute, aligned to the minute
+boundary so it changes when the clock does rather than up to 59 seconds late.
+
+Only while it is running: `applicationIconImage` belongs to the running application, so Finder and a quit
+app's Dock tile still show the static icon. Apple's own Clock behaves the same way, for the same reason.
+
+Per minute, not per second — a second hand is a few pixels at Dock size and would cost a redraw every second
+to say nothing. The drawing is shared with the build-time icon generator rather than copied, so the two
+cannot drift.
+
 ## Scope
 
 **User agents only.** Not `/Library/LaunchDaemons`.
