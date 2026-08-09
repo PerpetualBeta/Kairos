@@ -325,8 +325,7 @@ struct ScheduleDetail: View {
                         badge(status.loaded ? "Loaded" : "Not loaded", status.loaded ? .green : .secondary)
                         if status.disabled { badge("Disabled", .orange) }
                         if status.failed, let e = status.lastExitStatus { badge("Last exit \(e)", .red) }
-                        badge(schedule.isDueToRun ? "Due to run" : "Not due to run",
-                              schedule.isDueToRun ? .blue : .secondary)
+                        badge(schedule.stateLabel, schedule.isDueToRun ? .blue : .secondary)
                     }
                 }
 
@@ -340,8 +339,8 @@ struct ScheduleDetail: View {
                         Spacer()
                     }
                     Text(schedule.isDueToRun
-                         ? "\(schedule.appName) is due to be running until its quit time, so it will be restarted if it stops. Ending early stops that — it does not quit the app."
-                         : "Not due to run until its next launch time. Starting early brings that forward.")
+                         ? "\(schedule.appName) should be running right now and will be restarted if it stops. Ending early stops that — it does not quit the app."
+                         : "\(schedule.appName) is scheduled, but its run has not started yet. Starting early brings it forward without changing the schedule.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 .padding(10)

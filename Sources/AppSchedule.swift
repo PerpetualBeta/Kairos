@@ -34,6 +34,39 @@ struct AppSchedule: Identifiable, Hashable {
 
     var isDueToRun: Bool { JobBuilder.isDueToRun(pair) }
 
+    /// When this will next start, from the launch job's own calendar entries.
+    ///
+    /// Nil for an interval schedule, where the next fire depends on launchd's internal timer and cannot be
+    /// derived from the plist — better to say nothing than to state a time that is a guess.
+    var nextLaunch: Date? {
+        guard let l = launch, !l.calendarIntervals.isEmpty else { return nil }
+        let cal = Calendar.current, now = Date()
+        return l.calendarIntervals.compactMap { c -> Date? in
+            var m = DateComponents()
+            m.hour = c["Hour"]; m.minute = c["Minute"] ?? 0
+            if let w = c["Weekday"] { m.weekday = (w % 7) + 1 }     // launchd 0=Sunday, Calendar 1=Sunday
+            if let d = c["Day"] { m.day = d }
+            if let mo = c["Month"] { m.month = mo }
+            return cal.nextDate(after: now, matching: m, matchingPolicy: .nextTime)
+        }.min()
+    }
+
+    /// The badge, and it must be about NOW.
+    ///
+    /// "Due to run" read as a future obligation for an app that was already inside its window, and "Not due
+    /// to run" read as *not scheduled at all* for one that simply had not started yet. Both were about the
+    /// present and neither said so. Naming the next start removes the second misreading entirely.
+    var stateLabel: String {
+        if isDueToRun { return "Should be running now" }
+        guard let next = nextLaunch else { return "Not running now" }
+        let cal = Calendar.current
+        let f = DateFormatter()
+        if cal.isDateInToday(next) { f.dateFormat = "'Today' HH:mm" }
+        else if cal.isDateInTomorrow(next) { f.dateFormat = "'Tomorrow' HH:mm" }
+        else { f.dateFormat = "EEE HH:mm" }
+        return "Next run \(f.string(from: next))"
+    }
+
     /// Group whatever is on disk into schedules. Tolerant on purpose: a schedule whose quit job has been
     /// deleted by hand is still a schedule, and should be shown rather than vanish.
     static func group(_ jobs: [LaunchdJob]) -> [AppSchedule] {
