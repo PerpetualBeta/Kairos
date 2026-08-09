@@ -74,23 +74,26 @@ enum JobBuilder {
     static var markerDirectory: String { "\(NSHomeDirectory())/Library/Application Support/Kairos/windows" }
     static func markerPath(_ pairID: String) -> String { "\(markerDirectory)/\(pairID)" }
 
-    /// Is this app currently *due* to be running? Distinct from whether it happens to be running: the window
-    /// is the schedule's intent, and the guard is what reconciles the two.
-    static func windowIsOpen(_ pairID: String) -> Bool {
+    /// Is this app currently *due* to be running? Distinct from whether it happens to be running: this is
+    /// the schedule's intent, and the guard is what reconciles intent with reality.
+    ///
+    /// This was called an open "window" until someone reasonably read that as an application window — the
+    /// most loaded noun on the platform, and not one to spend on a metaphor.
+    static func isDueToRun(_ pairID: String) -> Bool {
         FileManager.default.fileExists(atPath: markerPath(pairID))
     }
 
-    /// Close it by hand. Without this, quitting a kept-alive app yourself achieves nothing — the guard
+    /// End the run early. Without this, quitting a kept-alive app yourself achieves nothing — the guard
     /// restores it within the check interval, which is correct behaviour and infuriating if it is not what
     /// you meant. The app is left alone: this says "stop expecting it to be running", not "kill it".
-    static func closeWindow(_ pairID: String) -> String? {
+    static func endEarly(_ pairID: String) -> String? {
         do { try FileManager.default.removeItem(atPath: markerPath(pairID)); return nil }
         catch CocoaError.fileNoSuchFile { return nil }          // already closed is success, not an error
         catch { return error.localizedDescription }
     }
 
-    /// And open it early, so a schedule can be started before its time without editing the times.
-    static func openWindow(_ pairID: String) -> String? {
+    /// And start it early, so a schedule can begin before its time without editing the times.
+    static func startEarly(_ pairID: String) -> String? {
         do {
             try FileManager.default.createDirectory(atPath: markerDirectory,
                                                     withIntermediateDirectories: true)

@@ -114,8 +114,8 @@ struct JobDetail: View {
                         if status.failed, let e = status.lastExitStatus { badge("Last exit \(e)", .red) }
                         if let r = status.runs { badge(r == 0 ? "Never run" : "Run \(r)×", r == 0 ? .orange : .secondary) }
                         if job.isAppSchedule, let pair = job.kairosPair {
-                            badge(JobBuilder.windowIsOpen(pair) ? "Window open" : "Window closed",
-                                  JobBuilder.windowIsOpen(pair) ? .blue : .secondary)
+                            badge(JobBuilder.isDueToRun(pair) ? "Due to run" : "Not due to run",
+                                  JobBuilder.isDueToRun(pair) ? .blue : .secondary)
                         }
                     }
                 }
@@ -137,20 +137,20 @@ struct JobDetail: View {
                 if job.isAppSchedule, let pair = job.kairosPair {
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(spacing: 10) {
-                            if JobBuilder.windowIsOpen(pair) {
-                                Button("Close Window Now") {
-                                    store.perform(job.label) { JobBuilder.closeWindow(pair) }
+                            if JobBuilder.isDueToRun(pair) {
+                                Button("End Early") {
+                                    store.perform(job.label) { JobBuilder.endEarly(pair) }
                                 }
                             } else {
-                                Button("Open Window Now") {
-                                    store.perform(job.label) { JobBuilder.openWindow(pair) }
+                                Button("Start Early") {
+                                    store.perform(job.label) { JobBuilder.startEarly(pair) }
                                 }
                             }
                             Spacer()
                         }
-                        Text(JobBuilder.windowIsOpen(pair)
-                             ? "\(job.kairosAppName ?? "This app") is due to be running, so the guard will restart it if it stops. Closing the window stops that — it does not quit the app."
-                             : "Not due to be running. Opening the window starts the schedule early; the guard will launch it at the next check.")
+                        Text(JobBuilder.isDueToRun(pair)
+                             ? "\(job.kairosAppName ?? "This app") is due to be running until its quit time, so it will be restarted if it stops. Ending early stops that — it does not quit the app."
+                             : "Not due to run until its next launch time. Starting early brings that forward; it will be launched at the next check.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     .padding(10)
