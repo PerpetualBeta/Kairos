@@ -59,6 +59,9 @@ the app *is* running:
 | **running** | Running | Running, outside its schedule |
 | **not running** | **Should be running — it is not** | Next run Mon 09:00 |
 
+There is a fifth: **This run was ended early** — inside the hours, but you stopped this run by hand, so
+nothing will restart it until the next launch time.
+
 Only the orange one means anything is wrong, and it is the reason for showing the two facts rather than one.
 Telling you an app *should* be running is guesswork when the answer is available for the asking; telling you
 it should be and **is not** is the thing worth interrupting you for. The running state is read from
@@ -67,6 +70,13 @@ it should be and **is not** is the thing worth interrupting you for. The running
 **End Early** and **Start Early** sit beside it. Ending early is what makes quitting a kept-alive app by hand
 actually stick; without it the guard restores the app at the next check, which is correct and maddening.
 Ending early does not quit the app, and the pane says so.
+
+"Due" is computed from the launch and quit times themselves, not from whether a run happens to be open.
+Those differ for every schedule between the moment you create it and its first launch time coming round —
+the marker below is written *by* the launch job, so until that job has fired even once there is nothing on
+disk. Kairos used to call such an app unscheduled while it sat squarely inside its hours, and the guard,
+gating on the same absent marker, would not have restarted it if it had crashed. Kairos now opens the run
+itself for any schedule that is inside its window and has never launched.
 
 **Keeping it running** is offered there too, and it is deliberately *not* launchd's `KeepAlive`. That key on
 the launch job would watch `open` — which exits the instant the app is up — and relaunch it in a tight loop

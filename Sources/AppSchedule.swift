@@ -32,7 +32,47 @@ struct AppSchedule: Identifiable, Hashable {
         return "\(launchSummary) → \(q)"
     }
 
+    /// Is a run currently ACTIVE? This is the marker file — written by the launch job, cleared by the quit
+    /// job — and it is what the keep-alive guard gates on.
     var isDueToRun: Bool { JobBuilder.isDueToRun(pair) }
+
+    /// Does the SCHEDULE say this app should be running right now?
+    ///
+    /// Derived from the launch and quit calendar entries, and deliberately independent of the marker above.
+    /// The two normally agree. They disagree for every schedule between being created and its first launch
+    /// time coming round: the marker is written *by* the launch job, so until that job has fired even once
+    /// there is nothing on disk, and the app reported itself outside a window it was plainly inside — while
+    /// the guard, gating on the same absent marker, sat inert and would not have restarted a crash.
+    ///
+    /// Found 2026-08-09: ASCII Saver scheduled Friday 18:00 → Monday 05:00, inspected on the Sunday, with
+    /// `runs = 0` on its launch job.
+    var isWithinScheduledWindow: Bool {
+        let now = Date()
+        guard let l = launch, !l.calendarIntervals.isEmpty,
+              let lastLaunch = Self.lastOccurrence(l.calendarIntervals, atOrBefore: now)
+        else { return false }
+        guard let q = quit, !q.calendarIntervals.isEmpty,
+              let lastQuit = Self.lastOccurrence(q.calendarIntervals, atOrBefore: now)
+        else { return true }              // nothing quits it, so once launched it stays up
+        return lastLaunch > lastQuit
+    }
+
+    /// The most recent moment one of these calendar entries fired, at or before `now`.
+    ///
+    /// Searching backwards is what makes a span work across days: the window is open when the last launch
+    /// is more recent than the last quit, which is true on a Sunday for a Friday-to-Monday schedule without
+    /// any special-casing of multi-day spans.
+    private static func lastOccurrence(_ intervals: [[String: Int]], atOrBefore now: Date) -> Date? {
+        let cal = Calendar.current
+        return intervals.compactMap { c -> Date? in
+            var m = DateComponents()
+            m.hour = c["Hour"]; m.minute = c["Minute"] ?? 0
+            if let w = c["Weekday"] { m.weekday = (w % 7) + 1 }   // launchd 0=Sunday, Calendar 1=Sunday
+            if let d = c["Day"] { m.day = d }
+            if let mo = c["Month"] { m.month = mo }
+            return cal.nextDate(after: now, matching: m, matchingPolicy: .nextTime, direction: .backward)
+        }.max()
+    }
 
     /// When this will next start, from the launch job's own calendar entries.
     ///
@@ -60,9 +100,14 @@ struct AppSchedule: Identifiable, Hashable {
     ///
     /// `running` comes from the store rather than being read here, so that the badge updates when the app
     /// starts or stops rather than only when the list is next rebuilt.
-    enum State { case running, shouldBeRunning, runningUnscheduled, idle }
+    enum State { case running, shouldBeRunning, runningUnscheduled, endedEarly, idle }
 
     func state(running: Bool) -> State {
+        // Inside the window with no active run can only mean the run was ended by hand: the store seeds
+        // the marker for any in-window schedule whose launch job has never fired, so a missing marker is
+        // no longer ambiguous. Checked first, or this would masquerade as one of the pairs below.
+        if isWithinScheduledWindow && !isDueToRun { return .endedEarly }
+
         switch (isDueToRun, running) {
         case (true, true):   return .running
         case (true, false):  return .shouldBeRunning      // the guard has not caught up, or there is none
@@ -76,6 +121,7 @@ struct AppSchedule: Identifiable, Hashable {
         case .running: return "Running"
         case .shouldBeRunning: return "Should be running — it is not"
         case .runningUnscheduled: return "Running, outside its schedule"
+        case .endedEarly: return running ? "Running — this run was ended early" : "This run was ended early"
         case .idle:
             guard let next = nextLaunch else { return "Not running" }
             let cal = Calendar.current

@@ -53,6 +53,26 @@ final class JobStore {
         for j in jobs { s[j.label] = LaunchdService.status(of: j.label, disabled: disabled) }
         statuses = s
         refreshRunning()
+        seedMarkersForOpenWindows()
+    }
+
+    /// Make the marker agree with the schedule for any app that is inside its window but whose launch job
+    /// has never fired.
+    ///
+    /// The marker is written by the launch job, so a schedule created part-way through its own window has
+    /// none until the next launch time comes round — days later, or a week. Until then Kairos called the
+    /// app unscheduled while it sat squarely inside its hours, and the keep-alive guard, which gates on
+    /// that same marker, would not have restarted it if it had crashed.
+    ///
+    /// SEEDS ONLY, and only where `runs == 0`. A marker missing after the launch job HAS run means the
+    /// user ended the run early, and undoing that is precisely the behaviour End Early exists to provide.
+    private func seedMarkersForOpenWindows() {
+        for sch in schedules where sch.isWithinScheduledWindow && !sch.isDueToRun {
+            guard let l = sch.launch, (status(l).runs ?? 0) == 0 else { continue }
+            if let err = JobBuilder.startEarly(sch.pair) {
+                lastError = "\(sch.appName): could not open its run — \(err)"
+            }
+        }
     }
 
     /// A schedule is as loaded/failed as its worst job. Rolling three states into one is the point of the
@@ -409,6 +429,9 @@ struct ScheduleDetail: View {
         case .runningUnscheduled:
             return "\(schedule.appName) is running outside its scheduled hours — opened by hand, or left "
                  + "over from an earlier run. Its quit job will still close it at the scheduled time."
+        case .endedEarly:
+            return "\(schedule.appName) is inside its scheduled hours, but this run was ended early, so "
+                 + "it will not be restarted if it stops. Starting early resumes it for the rest of the run."
         case .idle:
             return "\(schedule.appName) is scheduled, but its run has not started yet. Starting early "
                  + "brings it forward without changing the schedule."
@@ -439,6 +462,7 @@ func scheduleTint(_ state: AppSchedule.State, loaded: Bool) -> Color {
     case .running: return .green
     case .shouldBeRunning: return .orange
     case .runningUnscheduled: return .blue
+    case .endedEarly: return .secondary        // deliberate, so not a warning
     case .idle: return loaded ? .secondary : .gray.opacity(0.4)
     }
 }
