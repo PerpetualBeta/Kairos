@@ -17,6 +17,10 @@ struct KairosApp: App {
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") { delegate.checkForUpdates() }
             }
+            CommandGroup(replacing: .newItem) {
+                Button("Kairos Window") { delegate.reopenWindow() }
+                    .keyboardShortcut("0", modifiers: .command)
+            }
         }
     }
 }
@@ -61,7 +65,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.applicationIconImage = IconRenderer.draw(size: 512, date: Date())
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { true }
+    /// FALSE, and the live Dock clock is the reason. Terminating on last-window-close is a reasonable
+    /// default for a single-window utility, and it directly kills the feature added one commit earlier: the
+    /// icon can only tell the time while the app runs, so closing the window stopped the clock. Two features
+    /// arguing with each other, and the window is the one that should give way.
+    ///
+    /// It is also the platform convention for an app with no documents — closing a window is not quitting.
+    func applicationShouldTerminateAfterLastWindowClosed(_ app: NSApplication) -> Bool { false }
+
+    /// Which makes the Dock icon the way back in. Without this, closing the window would leave a running app
+    /// with no way to show itself again — worse than terminating.
+    func applicationShouldHandleReopen(_ app: NSApplication, hasVisibleWindows visible: Bool) -> Bool {
+        if !visible { showMainWindow() }
+        return true
+    }
+
+    func reopenWindow() { showMainWindow() }
+
+    private func showMainWindow() {
+        // The SwiftUI `Window` scene keeps its NSWindow when closed, so this orders the existing one back
+        // rather than building a second.
+        if let w = NSApp.windows.first(where: { $0.contentViewController != nil || $0.canBecomeMain }) {
+            w.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
 
     func checkForUpdates() { updater?.checkForUpdates(nil) }
 
