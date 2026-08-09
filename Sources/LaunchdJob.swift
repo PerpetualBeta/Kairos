@@ -37,6 +37,7 @@ struct LaunchdJob: Identifiable, Hashable {
     /// carry the same pair, which is what lets the UI treat three plists as one thing.
     var kairosPair: String? { raw["cc.jorviksoftware.Kairos.pair"] as? String }
     var kairosAppName: String? { raw["cc.jorviksoftware.Kairos.appName"] as? String }
+    var kairosAppPath: String? { raw["cc.jorviksoftware.Kairos.appPath"] as? String }
     var isAppSchedule: Bool { kairosKind?.hasPrefix("app") ?? false }
 
     // ── description ─────────────────────────────────────────────────────────

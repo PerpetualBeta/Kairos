@@ -7,13 +7,19 @@ struct EditorSeed: Identifiable {
     var mode: Mode = .command
     var existing: LaunchdJob?
 
+    /// An app schedule is edited as a WHOLE. Seeding from a single one of its three jobs is the bug this
+    /// removes: opening the quit job would have shown its time in the launch field and written it back
+    /// there on save.
+    var schedule: AppSchedule?
+
     init(mode: Mode) { self.mode = mode }
     init(existing: LaunchdJob) {
         self.existing = existing
-        // Reopen an app schedule as an app schedule. This is why `JobBuilder.kindKey` is written into the
-        // plist: guessing the mode back from ProgramArguments would be fragile and would break the moment
-        // someone hand-edited the file.
-        self.mode = (existing.kairosKind?.hasPrefix("app") ?? false) ? .app : .command
+        self.mode = .command                  // app jobs are never reached this way any more
+    }
+    init(schedule: AppSchedule) {
+        self.schedule = schedule
+        self.mode = .app
     }
 }
 
@@ -52,7 +58,7 @@ struct JobEditor: View {
     @State private var weekdays: Set<Int> = []
     @State private var intervalMinutes = 60
 
-    private var isEditing: Bool { seed.existing != nil }
+    private var isEditing: Bool { seed.existing != nil || seed.schedule != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -192,6 +198,31 @@ struct JobEditor: View {
     // ── load / save ─────────────────────────────────────────────────────────
     private func seedFields() {
         mode = seed.mode
+
+        // An app schedule reads from all three of its jobs — launch for the launch, quit for the quit, and
+        // the guard for whether keep-alive is on. That is the whole reason it is edited as one thing.
+        if let sch = seed.schedule {
+            appName = sch.appName
+            appPath = sch.appPath
+            if let l = sch.launch {
+                if let i = l.startInterval { kind = .interval; intervalMinutes = max(1, i / 60) }
+                if let c = l.calendarIntervals.first {
+                    kind = .daily; hour = c["Hour"] ?? 9; minute = c["Minute"] ?? 0
+                    weekdays = Set(l.calendarIntervals.compactMap { $0["Weekday"] })
+                }
+            }
+            quitEnabled = sch.quit != nil
+            if let q = sch.quit, let c = q.calendarIntervals.first {
+                quitHour = c["Hour"] ?? 18; quitMinute = c["Minute"] ?? 30
+                quitWeekdays = Set(q.calendarIntervals.compactMap { $0["Weekday"] })
+                // Force is recoverable from the command it wrote, which is the only place it is recorded.
+                forceQuit = (q.programArguments.last ?? "").contains("pkill")
+            }
+            keepAlive = sch.keepAlive != nil
+            if let k = sch.keepAlive, let i = k.startInterval { keepAliveMinutes = max(1, i / 60) }
+            return
+        }
+
         guard let j = seed.existing else { return }
         label = j.label
         command = j.programArguments.joined(separator: " ")

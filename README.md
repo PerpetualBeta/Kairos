@@ -95,13 +95,43 @@ helper, which is a large security surface for a small utility — but more impor
 cannot launch a GUI application into your login session at all**, so for the thing this app exists to make
 easy, daemons are the wrong tool anyway.
 
-## Building
+## Architecture
 
-    gmake build        # compile
-    gmake release      # signed, notarised, packaged (see PerpetualBeta/jorvik-release)
+| Component | Purpose |
+|-----------|---------|
+| `LaunchdService.swift` | Everything that talks to `launchctl` — modern domain-target verbs, status parsing, the disabled database |
+| `LaunchdJob.swift` | One plist, plus enough understanding of it to describe its schedule in English |
+| `AppSchedule.swift` | Groups the two or three jobs that implement a scheduled app into the one thing the user made |
+| `JobBuilder.swift` | Writes the plists — command mode, and the launch/quit/guard trio for an app |
+| `JobEditor.swift` | The single configuration sheet, for both modes |
+| `ContentView.swift` | The two sidebar views, and the detail panes |
+| `IconRenderer.swift` | The clock, drawn — shared by the bundle icon and the live Dock icon |
 
-SPM, macOS 14+, universal. Sparkle is vendored at the project root and embedded by `release.mk`; it is not
-committed.
+## Building from Source
+
+Kairos uses Swift Package Manager. No Xcode project is required.
+
+```bash
+git clone https://github.com/PerpetualBeta/Kairos.git
+cd Kairos
+gmake build
+open .build/Kairos.app
+```
+
+Requires GNU Make 4.x — `brew install make` installs it as `gmake`. `gmake icon` regenerates the app icon;
+`gmake release` produces a signed, notarised build via
+[jorvik-release](https://github.com/PerpetualBeta/jorvik-release).
 
 Kairos is **not sandboxed**, necessarily: it manages files outside its container and shells out to
 `launchctl`. Developer ID signed and notarised, distributed outside the App Store.
+
+## Permissions
+
+- **None required.** Kairos reads and writes your own `~/Library/LaunchAgents` and runs `/bin/launchctl`.
+- macOS raises a **Login Items** notification whenever a launch agent is added. That is the system telling
+  you a background item appeared, and it will happen every time you create a schedule.
+
+---
+
+Kairos is provided by [Jorvik Software](https://jorviksoftware.cc/). If you find it useful, consider
+[buying me a coffee](https://jorviksoftware.cc/donate).

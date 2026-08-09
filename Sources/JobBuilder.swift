@@ -117,6 +117,7 @@ enum JobBuilder {
             kindKey: "app-launch",
             pairKey: pairID,
             "cc.jorviksoftware.Kairos.appName": appName,
+            "cc.jorviksoftware.Kairos.appPath": appPath,
         ]
         if let (k, v) = schedule.plistValue() { d[k] = v }
         return d
@@ -142,6 +143,7 @@ enum JobBuilder {
             kindKey: "app-keepalive",
             pairKey: pairID,
             "cc.jorviksoftware.Kairos.appName": appName,
+            "cc.jorviksoftware.Kairos.appPath": appPath,
         ]
     }
 
@@ -163,6 +165,7 @@ enum JobBuilder {
             kindKey: "app-quit",
             pairKey: pairID,
             "cc.jorviksoftware.Kairos.appName": appName,
+            "cc.jorviksoftware.Kairos.appPath": appPath,
         ]
         if let (k, v) = schedule.plistValue() { d[k] = v }
         return d
