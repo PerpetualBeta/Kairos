@@ -17,6 +17,7 @@ final class JobStore {
     /// badge changes the moment an app starts or stops, instead of whenever the list is next rebuilt.
     var runningPairs: Set<String> = []
     private var appObservers: [NSObjectProtocol] = []
+    private var appKitObservers: [NSObjectProtocol] = []
 
     /// Event-driven, not polled. `NSWorkspace` says exactly when an application appears or goes away, so
     /// there is no reason to ask on a timer — and a timer would either lag the truth or spend a wake-up a
@@ -25,13 +26,27 @@ final class JobStore {
         let nc = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didLaunchApplicationNotification,
                      NSWorkspace.didTerminateApplicationNotification] {
-            appObservers.append(nc.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                self?.refreshRunning()
+            appObservers.append(nc.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                self?.applyRunningChange(note)
             })
         }
+
+        // Belt and braces. The deltas above are exact, but a notification missed while Kairos was in the
+        // background would otherwise persist unnoticed. Recomputing when the window comes forward costs
+        // one read at exactly the moment someone is about to believe what it says.
+        // Tracked separately: this one lives on the default centre, and an observer must be removed from
+        // the centre it was added to.
+        appKitObservers.append(NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.refreshRunning()
+        })
     }
 
-    deinit { appObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) } }
+    deinit {
+        appObservers.forEach { NSWorkspace.shared.notificationCenter.removeObserver($0) }
+        appKitObservers.forEach { NotificationCenter.default.removeObserver($0) }
+    }
 
     func refreshRunning() {
         let live = Set(NSWorkspace.shared.runningApplications.compactMap {
@@ -40,6 +55,30 @@ final class JobStore {
         runningPairs = Set(schedules.filter { s in
             s.normalisedAppPath.map(live.contains) ?? false
         }.map(\.pair))
+    }
+
+    /// Apply one launch or termination using the notification's OWN payload, rather than re-reading
+    /// `runningApplications` when it arrives.
+    ///
+    /// Re-reading looked simpler and was wrong. At the moment a terminate notification is delivered the
+    /// dying application can still be listed, so the recompute puts it straight back — and nothing then
+    /// corrects it, because the only thing that recomputes is the next launch or termination.
+    ///
+    /// Found 2026-08-10. ASCII Saver died at 05:00:00.501 and Rainy Day started at 05:00:00.765 — the
+    /// only two events, 264ms apart, both inside that window. ASCII Saver was still badged "Running,
+    /// outside its schedule" thirty-seven minutes later, and would have stayed so until the next app on
+    /// the machine happened to start or stop.
+    ///
+    /// The payload cannot race: it names which application changed, and in which direction.
+    private func applyRunningChange(_ note: Notification) {
+        guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+              let path = app.bundleURL?.standardizedFileURL.path
+        else { refreshRunning(); return }          // no payload to trust — fall back to the full read
+
+        let started = note.name == NSWorkspace.didLaunchApplicationNotification
+        for s in schedules where s.normalisedAppPath == path {
+            if started { runningPairs.insert(s.pair) } else { runningPairs.remove(s.pair) }
+        }
     }
 
     func isRunning(_ sch: AppSchedule) -> Bool { runningPairs.contains(sch.pair) }

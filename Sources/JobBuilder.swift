@@ -155,7 +155,14 @@ enum JobBuilder {
                         schedule: Schedule, force: Bool) -> [String: Any] {
         let quit = "/usr/bin/osascript -e " + shq("tell application \"\(asq(appName))\" to quit")
         let exe = shq(appPath + "/Contents/MacOS/")
-        let forceTail = " ; sleep 5; /usr/bin/pgrep -f \(exe) > /dev/null && /usr/bin/pkill -f \(exe)"
+        // `if`, not `pgrep && pkill`. The `&&` form makes the job's exit status the status of `pgrep`,
+        // so the ordinary outcome — the graceful quit worked, nothing left to force — short-circuits and
+        // launchd records the job as having FAILED every single time it succeeded. Observed 2026-08-10:
+        // ascii-saver.quit sitting at exit 1 after a textbook quit.
+        //
+        // An `if` whose condition is false exits 0, so a clean quit reports success. A `pkill` that
+        // actually runs and fails still propagates, which is the one outcome worth hearing about.
+        let forceTail = " ; sleep 5; if /usr/bin/pgrep -f \(exe) > /dev/null; then /usr/bin/pkill -f \(exe); fi"
         // Close the window FIRST. If the marker outlived the quit, the keep-alive guard would helpfully
         // relaunch the app seconds after it was asked to stop — the two jobs fighting each other forever.
         let sh = "rm -f \(shq(markerPath(pairID))); " + quit + (force ? forceTail : "")

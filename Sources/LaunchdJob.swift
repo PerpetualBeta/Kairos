@@ -37,7 +37,35 @@ struct LaunchdJob: Identifiable, Hashable {
     /// carry the same pair, which is what lets the UI treat three plists as one thing.
     var kairosPair: String? { raw["cc.jorviksoftware.Kairos.pair"] as? String }
     var kairosAppName: String? { raw["cc.jorviksoftware.Kairos.appName"] as? String }
-    var kairosAppPath: String? { raw["cc.jorviksoftware.Kairos.appPath"] as? String }
+    /// The bundle this job acts on.
+    ///
+    /// Prefers the metadata key, but falls back to reading the path back out of the command when the key
+    /// is absent — which it is for every schedule written before the key existed. Those jobs are not
+    /// broken: the path is right there in the command they run. Only the *label* on it is missing.
+    ///
+    /// Without the fallback, `appPath` stays empty, `normalisedAppPath` is nil, and the running check
+    /// answers "not running" unconditionally for that app — for ever, with no error anywhere. Found
+    /// 2026-08-10: Rainy Day's three jobs had no metadata key, so it was reported "Should be running —
+    /// it is not" while it had been running perfectly since 05:00:00.765.
+    var kairosAppPath: String? {
+        if let p = raw["cc.jorviksoftware.Kairos.appPath"] as? String, !p.isEmpty { return p }
+        return Self.appPath(inCommand: programArguments)
+    }
+
+    /// Recover a bundle path from the command a Kairos job runs. Launch and keep-alive jobs contain
+    /// `open -a '<path>'`; quit and keep-alive jobs contain `'<path>/Contents/MacOS/'`.
+    static func appPath(inCommand args: [String]) -> String? {
+        let cmd = args.joined(separator: " ")
+        for pattern in [#"open -a '([^']+\.app)'"#, #"'([^']+\.app)/Contents/MacOS/'"#] {
+            guard let re = try? NSRegularExpression(pattern: pattern),
+                  let m = re.firstMatch(in: cmd, range: NSRange(cmd.startIndex..., in: cmd)),
+                  m.numberOfRanges > 1,
+                  let r = Range(m.range(at: 1), in: cmd)
+            else { continue }
+            return String(cmd[r])
+        }
+        return nil
+    }
     var isAppSchedule: Bool { kairosKind?.hasPrefix("app") ?? false }
 
     // ── description ─────────────────────────────────────────────────────────
