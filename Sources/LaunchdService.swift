@@ -60,7 +60,13 @@ enum LaunchdService {
             // happened to behave because the other half of the test caught `=> disabled` — a parser that
             // is right by accident is one edit away from being wrong.
             let t = line.trimmingCharacters(in: .whitespaces)
-            guard t.hasSuffix("=> disabled"), let name = t.split(separator: "\"").dropFirst().first
+            // `dropFirst()` was here to skip the empty piece before the opening quote — but
+            // Swift's `split` omits empty subsequences unless told otherwise, so there is no
+            // such piece and it dropped the *label* instead. Every line then yielded the same
+            // " => disabled" remainder, so this returned a one-element set matching nothing
+            // and no job has ever been reported as disabled. The label is simply the first
+            // component between the quotes.
+            guard t.hasSuffix("=> disabled"), let name = t.split(separator: "\"").first
             else { continue }
             out.insert(String(name))
         }

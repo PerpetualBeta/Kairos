@@ -100,9 +100,15 @@ struct AppSchedule: Identifiable, Hashable {
     ///
     /// `running` comes from the store rather than being read here, so that the badge updates when the app
     /// starts or stops rather than only when the list is next rebuilt.
-    enum State { case running, shouldBeRunning, runningUnscheduled, endedEarly, idle }
+    enum State { case running, shouldBeRunning, runningUnscheduled, endedEarly, idle, disabled }
 
-    func state(running: Bool) -> State {
+    func state(running: Bool, disabled: Bool = false) -> State {
+        // Nothing is wrong with a disabled schedule, so it must not raise the warning. The
+        // orange badge means intent and reality disagree — and a schedule whose jobs are
+        // switched off in launchd's disabled database has no intent to disagree with. Saying
+        // "should be running" of something that cannot possibly run is a false alarm, and it
+        // is the loudest thing on the pane.
+        if disabled { return running ? .runningUnscheduled : .disabled }
         // Inside the window with no active run can only mean the run was ended by hand: the store seeds
         // the marker for any in-window schedule whose launch job has never fired, so a missing marker is
         // no longer ambiguous. Checked first, or this would masquerade as one of the pairs below.
@@ -116,8 +122,9 @@ struct AppSchedule: Identifiable, Hashable {
         }
     }
 
-    func stateLabel(running: Bool) -> String {
-        switch state(running: running) {
+    func stateLabel(running: Bool, disabled: Bool = false) -> String {
+        switch state(running: running, disabled: disabled) {
+        case .disabled: return "Disabled — it will not run"
         case .running: return "Running"
         case .shouldBeRunning: return "Should be running — it is not"
         case .runningUnscheduled: return "Running, outside its schedule"

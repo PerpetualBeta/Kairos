@@ -367,7 +367,7 @@ struct ScheduleRow: View {
     private var tint: Color {
         if status.disabled { return .orange }
         if status.failed { return .red }
-        return scheduleTint(schedule.state(running: running), loaded: status.loaded)
+        return scheduleTint(schedule.state(running: running, disabled: status.disabled), loaded: status.loaded)
     }
 }
 
@@ -392,8 +392,8 @@ struct ScheduleDetail: View {
                         badge(status.loaded ? "Loaded" : "Not loaded", status.loaded ? .green : .secondary)
                         if status.disabled { badge("Disabled", .orange) }
                         if status.failed, let e = status.lastExitStatus { badge("Last exit \(e)", .red) }
-                        badge(schedule.stateLabel(running: running),
-                              scheduleTint(schedule.state(running: running), loaded: status.loaded))
+                        badge(schedule.stateLabel(running: running, disabled: status.disabled),
+                              scheduleTint(schedule.state(running: running, disabled: status.disabled), loaded: status.loaded))
                     }
                 }
 
@@ -457,7 +457,7 @@ struct ScheduleDetail: View {
     /// Says what is true first, then what the button beside it will do. The End/Start Early control is the
     /// thing being explained, so each case has to make sense of pressing it in that state.
     private var caption: String {
-        switch schedule.state(running: running) {
+        switch schedule.state(running: running, disabled: status.disabled) {
         case .running:
             return "\(schedule.appName) is running and due to be, so it will be restarted if it stops. "
                  + "Ending early stops that — it does not quit the app."
@@ -471,6 +471,9 @@ struct ScheduleDetail: View {
         case .endedEarly:
             return "\(schedule.appName) is inside its scheduled hours, but this run was ended early, so "
                  + "it will not be restarted if it stops. Starting early resumes it for the rest of the run."
+        case .disabled:
+            return "\(schedule.appName)'s jobs are disabled in launchd, so nothing will start it at its "
+                 + "scheduled time — not even a reboot. Enable them to put the schedule back in force."
         case .idle:
             return "\(schedule.appName) is scheduled, but its run has not started yet. Starting early "
                  + "brings it forward without changing the schedule."
@@ -492,7 +495,7 @@ struct ScheduleDetail: View {
     }
 }
 
-/// The four states, coloured. Shared by the sidebar dot and the detail badge so the two can never drift.
+/// The states, coloured. Shared by the sidebar dot and the detail badge so the two can never drift.
 ///
 /// Orange is the only alarming one, and deliberately so: an app that is due to be running and is not is the
 /// single state here that means something has gone wrong.
@@ -503,5 +506,7 @@ func scheduleTint(_ state: AppSchedule.State, loaded: Bool) -> Color {
     case .runningUnscheduled: return .blue
     case .endedEarly: return .secondary        // deliberate, so not a warning
     case .idle: return loaded ? .secondary : .gray.opacity(0.4)
+    // Switched off on purpose, so it is not a warning — the same reasoning as `.endedEarly`.
+    case .disabled: return .secondary
     }
 }
