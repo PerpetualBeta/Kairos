@@ -8,6 +8,32 @@ catch him as he comes, or not at all.
 
 ---
 
+## Requirements
+
+macOS 14 (Sonoma) or later. Universal binary — Apple silicon and Intel.
+
+No permissions are required: Kairos reads and writes your own `~/Library/LaunchAgents` and runs
+`/bin/launchctl`.
+
+## Installation
+
+Two formats on every release, both signed and notarised:
+
+- **[Installer (`.pkg`)](https://github.com/PerpetualBeta/Kairos/releases/latest/download/Kairos.pkg)** —
+  recommended for a first install. macOS places the app in `/Applications` without quarantine or App
+  Translocation.
+- **[Download (`.zip`)](https://github.com/PerpetualBeta/Kairos/releases/latest)** — unzip and drag
+  `Kairos.app` to your Applications folder.
+
+Or with [Homebrew](https://brew.sh):
+
+```sh
+brew install --cask perpetualbeta/jorvik/kairos
+```
+
+Updates arrive through [Sparkle](https://sparkle-project.org): Kairos checks daily in the background, and
+**Check for Updates…** asks on demand.
+
 ## Why
 
 macOS already has an excellent scheduler. `launchd` runs everything on the system, survives reboots, handles
@@ -133,16 +159,21 @@ easy, daemons are the wrong tool anyway.
 
 Kairos uses Swift Package Manager. No Xcode project is required.
 
-```bash
+The build includes the shared `release.mk` from
+[jorvik-release](https://github.com/PerpetualBeta/jorvik-release), which must be checked out **beside** this
+repository — hence both clones below. macOS ships GNU Make 3.81, which cannot run these recipes, so the
+commands use `gmake` from [Homebrew](https://brew.sh)'s `make`.
+
+```sh
+brew install make                                              # provides gmake
+git clone https://github.com/PerpetualBeta/jorvik-release.git  # sibling checkout, required
 git clone https://github.com/PerpetualBeta/Kairos.git
 cd Kairos
 gmake build
 open .build/Kairos.app
 ```
 
-Requires GNU Make 4.x — `brew install make` installs it as `gmake`. `gmake icon` regenerates the app icon;
-`gmake release` produces a signed, notarised build via
-[jorvik-release](https://github.com/PerpetualBeta/jorvik-release).
+`gmake icon` regenerates the app icon; `gmake release` produces a signed, notarised build.
 
 Kairos is **not sandboxed**, necessarily: it manages files outside its container and shells out to
 `launchctl`. Developer ID signed and notarised, distributed outside the App Store.
@@ -152,6 +183,17 @@ Kairos is **not sandboxed**, necessarily: it manages files outside its container
 - **None required.** Kairos reads and writes your own `~/Library/LaunchAgents` and runs `/bin/launchctl`.
 - macOS raises a **Login Items** notification whenever a launch agent is added. That is the system telling
   you a background item appeared, and it will happen every time you create a schedule.
+
+## Other Jorvik tools
+
+- **[QuitProtect](https://jorviksoftware.cc/utilities/quitprotect)** — the other half of the same problem.
+  Kairos decides *when* an app runs; QuitProtect stops a careless ⌘Q ending it early.
+- **[Lookout](https://jorviksoftware.cc/utilities/lookout)** — watches GitHub for the things a schedule
+  cannot predict: review requests, failing CI, notifications.
+- **[CalendarUpcoming](https://jorviksoftware.cc/utilities/calendarupcoming)** — the same instinct applied to
+  a calendar rather than to launchd.
+
+The whole catalogue is at [jorviksoftware.cc](https://jorviksoftware.cc/).
 
 ---
 
