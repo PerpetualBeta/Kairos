@@ -187,7 +187,7 @@ Kairos is **not sandboxed**, necessarily: it manages files outside its container
 ## Other Jorvik tools
 
 - **[QuitProtect](https://jorviksoftware.cc/utilities/quitprotect)** — the other half of the same problem.
-  Kairos decides *when* an app runs; QuitProtect stops a careless ⌘Q ending it early.
+  Kairos decides *when* an app runs; QuitProtect stops a careless `command` `Q` ending it early.
 - **[Lookout](https://jorviksoftware.cc/utilities/lookout)** — watches GitHub for the things a schedule
   cannot predict: review requests, failing CI, notifications.
 - **[CalendarUpcoming](https://jorviksoftware.cc/utilities/calendarupcoming)** — the same instinct applied to
