@@ -103,10 +103,15 @@ final class JobStore {
     /// app unscheduled while it sat squarely inside its hours, and the keep-alive guard, which gates on
     /// that same marker, would not have restarted it if it had crashed.
     ///
-    /// SEEDS ONLY, and only where `runs == 0`. A marker missing after the launch job HAS run means the
-    /// user ended the run early, and undoing that is precisely the behaviour End Early exists to provide.
+    /// SEEDS ONLY, and never over the user's own decision. `runs == 0` was the whole test until
+    /// 2026-08-28, on the reasoning that a marker missing after the launch job HAS run must mean End
+    /// Early — true, but it leaves the case where the launch job has NOT run, where End Early looks
+    /// identical to a schedule waiting for its first launch. So every End Early on such a schedule was
+    /// undone by the reload that the button press itself triggered. The stamp is what tells the two apart.
     private func seedMarkersForOpenWindows() {
         for sch in schedules where sch.isWithinScheduledWindow && !sch.isDueToRun {
+            if sch.wasEndedEarly { continue }
+            JobBuilder.clearEndStamp(sch.pair)      // about an earlier run; the schedule has moved past it
             guard let l = sch.launch, (status(l).runs ?? 0) == 0 else { continue }
             if let err = JobBuilder.startEarly(sch.pair) {
                 lastError = "\(sch.appName): could not open its run — \(err)"
@@ -130,7 +135,7 @@ final class JobStore {
     func deleteSchedule(_ sch: AppSchedule) {
         var err: String?
         for j in sch.jobs { if let e = LaunchdService.delete(j) { err = e } }
-        _ = JobBuilder.endEarly(sch.pair)          // no orphan marker; the guard is gone but be tidy
+        JobBuilder.forget(sch.pair)                // no orphan marker; the guard is gone but be tidy
         lastError = err.map { "\(sch.appName): \($0)" }
         reload()
     }
@@ -401,6 +406,21 @@ struct ScheduleDetail: View {
                     HStack(spacing: 10) {
                         if schedule.isDueToRun {
                             Button("End Early") { store.perform(schedule.appName) { JobBuilder.endEarly(schedule.pair) } }
+                            // Offered at the press rather than stored in the schedule, because whether you
+                            // want the app closed is a fact about this moment and not about the schedule.
+                            // Only while it is actually running: a button that quits nothing is a button
+                            // that teaches you to distrust the pane.
+                            if running {
+                                Button("End Early & Quit") {
+                                    store.perform(schedule.appName) {
+                                        // End first. Quitting while the marker is still there leaves the
+                                        // guard free to relaunch the app within the check interval, which
+                                        // is the two-jobs-fighting problem the marker exists to prevent.
+                                        if let err = JobBuilder.endEarly(schedule.pair) { return err }
+                                        return JobBuilder.quitNow(appPath: schedule.appPath)
+                                    }
+                                }
+                            }
                         } else {
                             Button("Start Early") { store.perform(schedule.appName) { JobBuilder.startEarly(schedule.pair) } }
                         }
@@ -460,7 +480,8 @@ struct ScheduleDetail: View {
         switch schedule.state(running: running, disabled: status.disabled) {
         case .running:
             return "\(schedule.appName) is running and due to be, so it will be restarted if it stops. "
-                 + "Ending early stops that — it does not quit the app."
+                 + "Ending early stops that and leaves the app open. Ending early and quitting also closes "
+                 + "it now, and asks rather than insists: an app with unsaved work will put up a dialog."
         case .shouldBeRunning:
             return "\(schedule.appName) is due to be running but is not. If it is kept running it will be "
                  + "started again at the next check; otherwise nothing will start it until its next launch "

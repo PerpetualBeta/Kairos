@@ -83,23 +83,94 @@ enum JobBuilder {
         FileManager.default.fileExists(atPath: markerPath(pairID))
     }
 
+    /// Where an explicit End Early is recorded, beside the marker it removes.
+    ///
+    /// The marker cannot carry that intent by itself, because its absence means two different things: no
+    /// run has started yet, or the user stopped this one by hand. `seedMarkersForOpenWindows` writes a
+    /// marker for the first case, so with no record of the second it wrote the marker straight back and
+    /// End Early did nothing at all. Found 2026-08-28: two presses on a Rainy Day schedule sitting inside
+    /// its Monday-to-Friday hours, whose launch job still read `runs = 0`.
+    ///
+    /// A pair ID is a slug of alphanumerics and dashes, so this suffix cannot collide with another pair's
+    /// marker.
+    static func endStampPath(_ pairID: String) -> String { "\(markerPath(pairID)).ended" }
+
+    /// When a run was last ended by hand, or nil if none ever was. WHICH run that was is the caller's
+    /// question: a stamp older than the current run is about a previous one.
+    static func endedEarlyAt(_ pairID: String) -> Date? {
+        let path = endStampPath(pairID)
+        if let text = try? String(contentsOfFile: path, encoding: .utf8),
+           let stamped = ISO8601DateFormatter().date(from: text.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return stamped
+        }
+        // The file existing is the fact; the time written inside it is a refinement. If that cannot be
+        // read, fall back on the filesystem's own record rather than answering "no stamp" — the failure
+        // mode of that answer is silently undoing what the user asked for.
+        return (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
+    }
+
     /// End the run early. Without this, quitting a kept-alive app yourself achieves nothing — the guard
     /// restores it within the check interval, which is correct behaviour and infuriating if it is not what
     /// you meant. The app is left alone: this says "stop expecting it to be running", not "kill it".
     static func endEarly(_ pairID: String) -> String? {
+        // Stamp first. An orphaned stamp is harmless, because it is only ever consulted while the marker
+        // is absent; a removed marker with no stamp is the bug this exists to prevent.
+        do {
+            try FileManager.default.createDirectory(atPath: markerDirectory,
+                                                    withIntermediateDirectories: true)
+            try ISO8601DateFormatter().string(from: Date())
+                .write(toFile: endStampPath(pairID), atomically: true, encoding: .utf8)
+        } catch { return error.localizedDescription }
         do { try FileManager.default.removeItem(atPath: markerPath(pairID)); return nil }
         catch CocoaError.fileNoSuchFile { return nil }          // already closed is success, not an error
         catch { return error.localizedDescription }
     }
 
-    /// And start it early, so a schedule can begin before its time without editing the times.
+    /// And start it early, so a schedule can begin before its time without editing the times. It is also
+    /// the way to undo End Early, so it clears the stamp.
     static func startEarly(_ pairID: String) -> String? {
         do {
             try FileManager.default.createDirectory(atPath: markerDirectory,
                                                     withIntermediateDirectories: true)
             try Date().description.write(toFile: markerPath(pairID), atomically: true, encoding: .utf8)
-            return nil
         } catch { return error.localizedDescription }
+        clearEndStamp(pairID)
+        return nil
+    }
+
+    /// Quit a scheduled app now, for the End Early & Quit press.
+    ///
+    /// Graceful only, and deliberately. The scheduled quit offers a force fallback because nobody is there
+    /// to see a refusal; a button press has the user in front of the screen, where a "save this document?"
+    /// dialog is an answer rather than a hang.
+    ///
+    /// `NSRunningApplication.terminate()` rather than kicking the quit job. Kicking it would work, and
+    /// would also count a run and a last exit status against a schedule that never reached its quit time,
+    /// which the pane then reports as fact. It also does not exist for a schedule that never quits — and
+    /// that is precisely a schedule someone would want to end by hand.
+    static func quitNow(appPath: String) -> String? {
+        guard !appPath.isEmpty else { return "no application path recorded, so it cannot be quit" }
+        let wanted = URL(fileURLWithPath: appPath).standardizedFileURL.path
+        let live = NSWorkspace.shared.runningApplications.filter {
+            $0.bundleURL?.standardizedFileURL.path == wanted
+        }
+        guard !live.isEmpty else { return nil }          // already closed is success, not an error
+        // `terminate()` reports whether the request was SENT, not whether the app went away. An app that
+        // puts up a dialog answers true and stays open, which is correct and not something to report.
+        return live.allSatisfy({ $0.terminate() }) ? nil : "it did not accept the request to quit"
+    }
+
+    /// Drop the End Early record. A failure here is not worth reporting: the stamp only has any effect
+    /// while the marker is absent, and every caller has either just written one or is deleting the lot.
+    static func clearEndStamp(_ pairID: String) {
+        try? FileManager.default.removeItem(atPath: endStampPath(pairID))
+    }
+
+    /// Forget a pair completely, for a schedule being deleted. Not `endEarly`, which would leave behind a
+    /// stamp claiming a schedule that no longer exists was stopped by hand.
+    static func forget(_ pairID: String) {
+        try? FileManager.default.removeItem(atPath: markerPath(pairID))
+        clearEndStamp(pairID)
     }
 
     /// `open -a` rather than executing the binary inside the bundle directly: `open` hands the launch to

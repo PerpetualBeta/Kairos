@@ -74,6 +74,26 @@ struct AppSchedule: Identifiable, Hashable {
         }.max()
     }
 
+    /// When the current run started, from the launch job's own calendar entries. This is the boundary that
+    /// decides whether an End Early stamp is about the run in front of you or one that has since finished.
+    var currentRunStart: Date? {
+        guard let l = launch, !l.calendarIntervals.isEmpty else { return nil }
+        return Self.lastOccurrence(l.calendarIntervals, atOrBefore: Date())
+    }
+
+    /// Did the user end THIS run by hand?
+    ///
+    /// A stamp from before the run started belongs to a run that has since closed and been opened again by
+    /// the schedule, and says nothing about this one — which is what makes the stamp self-clearing instead
+    /// of a switch someone has to remember to reset. With no calendar to place the boundary, an interval
+    /// schedule, the stamp stands: overriding what the user explicitly asked for needs better grounds than
+    /// "cannot tell".
+    var wasEndedEarly: Bool {
+        guard let endedAt = JobBuilder.endedEarlyAt(pair) else { return false }
+        guard let start = currentRunStart else { return true }
+        return endedAt >= start
+    }
+
     /// When this will next start, from the launch job's own calendar entries.
     ///
     /// Nil for an interval schedule, where the next fire depends on launchd's internal timer and cannot be
