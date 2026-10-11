@@ -94,11 +94,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func checkForUpdates() { updater?.checkForUpdates(nil) }
 
     func showAbout() {
-        NSApp.orderFrontStandardAboutPanel(options: [
+        orderFrontAboutPanelOnActiveSpace(options: [
             .applicationName: "Kairos",
             .credits: NSAttributedString(
                 string: "A front end for launchd's user agents.\n\nJorvik Software",
                 attributes: [.font: NSFont.systemFont(ofSize: 11)]),
         ])
+    }
+
+    /// Shows the standard About panel on the space the user is on.
+    ///
+    /// AppKit makes the panel once and shows that same panel each time, where
+    /// it was last left. One left open, or closed, on another space would
+    /// switch spaces to reach it. Marked `.moveToActiveSpace` it comes here
+    /// instead. The flag stays set, because it acts when the panel becomes
+    /// active, after `activate` has finished (measured on macOS 27.0.1,
+    /// 2026-10-11, as for JorvikKit's `showOnActiveSpace`).
+    private func orderFrontAboutPanelOnActiveSpace(options: [NSApplication.AboutPanelOptionKey: Any]) {
+        let before = Set(NSApp.windows.map(ObjectIdentifier.init))
+        NSApp.orderFrontStandardAboutPanel(options: options)
+        for window in NSApp.windows where !before.contains(ObjectIdentifier(window)) {
+            window.collectionBehavior.insert(.moveToActiveSpace)
+        }
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
