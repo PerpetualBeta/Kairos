@@ -25,9 +25,19 @@ struct JorvikAboutView: View {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
     }
 
+    /// The app's own icon, as stored in its bundle. Not `NSApp.applicationIconImage`:
+    /// that is whatever the running app last set for the Dock, and Kairos redraws
+    /// its Dock icon as a live clock, so its About window showed a snapshot of the
+    /// clock instead of the app's icon (reported 2026-10-12). For every other app
+    /// the two are the same picture.
+    private var bundleIcon: NSImage? {
+        let icon = NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
+        return icon.isValid ? icon : NSApp.applicationIconImage
+    }
+
     var body: some View {
         VStack(spacing: 12) {
-            if let icon = NSApp.applicationIconImage {
+            if let icon = bundleIcon {
                 Image(nsImage: icon)
                     .resizable()
                     .frame(width: 64, height: 64)
