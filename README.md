@@ -139,6 +139,8 @@ Per minute, not per second — a second hand is a few pixels at Dock size and wo
 to say nothing. The drawing is shared with the build-time icon generator rather than copied, so the two
 cannot drift.
 
+The live clock follows the icon style in System Settings › Appearance (Default, Dark, Clear or Tinted, in its light or dark form). macOS restyles an app's bundle icon itself, but it cannot restyle a picture the app draws, so Kairos reads the same setting (`AppleIconAppearanceTheme`) and draws the clock to match. It redraws at once when the style or light and dark mode changes, and on every minute anyway. To preview a style without changing System Settings: `defaults write cc.jorviksoftware.Kairos IconStyleOverride ClearDark`, then quit and reopen Kairos; `defaults delete cc.jorviksoftware.Kairos IconStyleOverride` to go back.
+
 ## Scope
 
 **User agents only.** Not `/Library/LaunchDaemons`.

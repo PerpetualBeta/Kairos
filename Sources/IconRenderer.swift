@@ -13,8 +13,9 @@ enum IconRenderer {
 
     /// `date` nil draws the icon at rest — 10:10, the horologist's convention, where the hands frame the
     /// centre symmetrically and neither hides the other. That is the static bundle icon. Pass a date and it
-    /// tells the time instead.
-    static func draw(size: CGFloat, date: Date? = nil) -> NSImage {
+    /// tells the time instead. `style` is the icon style to draw in; the bundle icon is always Default,
+    /// because macOS restyles that one itself.
+    static func draw(size: CGFloat, date: Date? = nil, style: IconStyle = .default) -> NSImage {
         let image = NSImage(size: NSSize(width: size, height: size))
         image.lockFocus()
         guard let ctx = NSGraphicsContext.current?.cgContext else {
@@ -24,19 +25,28 @@ enum IconRenderer {
 
         let s = size, cx = s / 2, cy = s / 2
 
-        // Background — rounded rect with brand colour
+        // Background — rounded rect, top to bottom in the style's colours (one colour for Default)
         let bgRect = NSRect(x: s * 0.04, y: s * 0.04, width: s * 0.92, height: s * 0.92)
         let bgPath = NSBezierPath(roundedRect: bgRect, xRadius: s * 0.18, yRadius: s * 0.18)
-        brandBlue.setFill()
-        bgPath.fill()
+        let gradSpace = CGColorSpaceCreateDeviceRGB()
+        let bg = style.background
+        if let fill = NSGradient(starting: bg.bottom, ending: bg.top) {
+            fill.draw(in: bgPath, angle: 90)
+        }
+        if let rim = style.rim {
+            rim.setStroke()
+            let edge = NSBezierPath(roundedRect: bgRect.insetBy(dx: s * 0.004, dy: s * 0.004),
+                                    xRadius: s * 0.176, yRadius: s * 0.176)
+            edge.lineWidth = s * 0.008
+            edge.stroke()
+        }
 
         // Subtle radial gradient for depth
-        let gradSpace = CGColorSpaceCreateDeviceRGB()
         let gradColors = [
             NSColor(white: 1.0, alpha: 0.08).cgColor,
             NSColor(white: 0.0, alpha: 0.10).cgColor,
         ] as CFArray
-        if let gradient = CGGradient(colorsSpace: gradSpace, colors: gradColors, locations: [0.0, 1.0]) {
+        if style.glow, let gradient = CGGradient(colorsSpace: gradSpace, colors: gradColors, locations: [0.0, 1.0]) {
             ctx.saveGState()
             ctx.addPath(bgPath.cgPath)
             ctx.clip()
@@ -58,15 +68,20 @@ enum IconRenderer {
             NSColor(white: 1.0, alpha: 0.06).cgColor,
             NSColor(white: 1.0, alpha: 0.0).cgColor,
         ] as CFArray
-        if let glow = CGGradient(colorsSpace: gradSpace, colors: glowColors, locations: [0.0, 1.0]) {
+        if style.glow, let glow = CGGradient(colorsSpace: gradSpace, colors: glowColors, locations: [0.0, 1.0]) {
             ctx.drawRadialGradient(glow,
                                    startCenter: CGPoint(x: cx, y: cy), startRadius: r * 0.9,
                                    endCenter: CGPoint(x: cx, y: cy), endRadius: r * 1.4,
                                    options: [])
         }
 
-        let faceColor = NSColor(white: 1.0, alpha: 0.92)
-        let tickColor = NSColor(white: 1.0, alpha: 0.45)
+        // The clock is drawn solid inside a transparency layer, then faded as a whole. Drawn with a
+        // translucent colour directly, the hands and the pin would add up where they overlap and leave a
+        // bright spot at the centre, which shows in the see-through Clear style.
+        let faceColor = style.face.withAlphaComponent(1)
+        let tickColor = faceColor.withAlphaComponent(IconStyle.tickOpacity)
+        ctx.setAlpha(style.face.alphaComponent)
+        ctx.beginTransparencyLayer(auxiliaryInfo: nil)
 
         // The ring, heavy enough to survive 16 px where a hairline disappears entirely.
         ctx.setStrokeColor(faceColor.cgColor)
@@ -112,6 +127,7 @@ enum IconRenderer {
         let pin = s * 0.030
         ctx.fillEllipse(in: CGRect(x: cx - pin, y: cy - pin, width: pin * 2, height: pin * 2))
 
+        ctx.endTransparencyLayer()
         ctx.restoreGState()
         image.unlockFocus()
         return image
@@ -144,6 +160,114 @@ enum IconRenderer {
         try? p.run()
         p.waitUntilExit()
         print("  AppIcon.icns")
+    }
+}
+
+/// How macOS asks icons to look: System Settings > Appearance > Icon & widget style.
+///
+/// macOS restyles an app's BUNDLE icon itself (Default, Dark, Clear, Tinted). It cannot restyle the
+/// live clock, because Kairos hands the Dock a finished bitmap (`applicationIconImage`). So the
+/// running app reads the same setting and draws the clock in that style.
+///
+/// The setting is `AppleIconAppearanceTheme` in the global domain: a kind (Regular, Clear, Tinted)
+/// and a variant (Light, Dark, Automatic), e.g. `ClearLight`, `TintedAutomatic`. Automatic follows
+/// the system's light or dark mode. Absent (older macOS) means the Default style.
+struct IconStyle: Equatable {
+    enum Kind: String { case regular, dark, clear, tinted }
+    let kind: Kind
+    /// The dark form of Clear or Tinted. Default and Dark are already one or the other.
+    let darkVariant: Bool
+    /// The tint for the Tinted style. macOS stores no tint colour when it follows the accent colour,
+    /// so this is the accent colour.
+    let tint: NSColor
+
+    static let `default` = IconStyle(kind: .regular, darkVariant: false, tint: .controlAccentColor)
+
+    /// For testing every style without changing System Settings:
+    ///     defaults write cc.jorviksoftware.Kairos IconStyleOverride ClearDark
+    /// and `defaults delete cc.jorviksoftware.Kairos IconStyleOverride` to go back.
+    static let overrideKey = "IconStyleOverride"
+
+    static func current(appearance: NSAppearance) -> IconStyle {
+        let theme = UserDefaults.standard.string(forKey: overrideKey) ?? systemTheme()
+        let systemDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        return parse(theme, systemDark: systemDark)
+    }
+
+    /// Read fresh each time: UserDefaults caches the global domain, and the setting changes in
+    /// another process (System Settings).
+    private static func systemTheme() -> String? {
+        let key = "AppleIconAppearanceTheme" as CFString
+        CFPreferencesAppSynchronize(kCFPreferencesAnyApplication)
+        return CFPreferencesCopyAppValue(key, kCFPreferencesAnyApplication) as? String
+    }
+
+    static func parse(_ theme: String?, systemDark: Bool) -> IconStyle {
+        guard let theme, !theme.isEmpty else { return .default }
+        let dark: Bool
+        if theme.hasSuffix("Dark") { dark = true }
+        else if theme.hasSuffix("Light") { dark = false }
+        else { dark = systemDark }                       // "Automatic", or anything new
+        let kind: Kind
+        if theme.hasPrefix("Clear") { kind = .clear }
+        else if theme.hasPrefix("Tinted") { kind = .tinted }
+        else { kind = dark ? .dark : .regular }          // "Regular…": Default, or Dark when dark
+        return IconStyle(kind: kind, darkVariant: dark, tint: .controlAccentColor)
+    }
+
+    // ── colours ──────────────────────────────────────────────────────────────
+    // Clear is measured, not guessed: on a Mac set to ClearLight, Jorvik's other Dock tiles were
+    // the Dock darkened by black at about 25 % (top) to 45 % (bottom), and their symbols white at
+    // about 60 %. ClearDark is the same recipe, darker.
+
+    /// Background, top and bottom.
+    var background: (top: NSColor, bottom: NSColor) {
+        switch kind {
+        case .regular:
+            return (IconRenderer.brandBlue, IconRenderer.brandBlue)
+        case .dark:
+            return (NSColor(white: 0.21, alpha: 1), NSColor(white: 0.11, alpha: 1))
+        case .clear:
+            return darkVariant ? (NSColor(white: 0, alpha: 0.45), NSColor(white: 0, alpha: 0.62))
+                               : (NSColor(white: 0, alpha: 0.25), NSColor(white: 0, alpha: 0.45))
+        case .tinted:
+            let t = srgb(tint)
+            return darkVariant ? (mix(t, .black, 0.78), mix(t, .black, 0.88))
+                               : (mix(t, .white, 0.80), mix(t, .white, 0.68))
+        }
+    }
+
+    /// The ring, the hands and the centre pin.
+    var face: NSColor {
+        switch kind {
+        case .regular: return NSColor(white: 1.0, alpha: 0.92)
+        case .dark:    return mix(srgb(IconRenderer.brandBlue), .white, 0.55)
+        case .clear:   return NSColor(white: 1.0, alpha: darkVariant ? 0.60 : 0.66)
+        case .tinted:
+            let t = srgb(tint)
+            return darkVariant ? mix(t, .white, 0.55) : mix(t, .black, 0.10)
+        }
+    }
+
+    /// The quarter ticks, relative to the rest of the clock: half as strong.
+    static let tickOpacity: CGFloat = 0.5
+
+    /// The brand icon's radial glow suits only the brand blue; on glass or a tint it reads as a smudge.
+    var glow: Bool { kind == .regular }
+
+    /// A hairline highlight round the edge, which glass tiles have.
+    var rim: NSColor? {
+        kind == .clear ? NSColor(white: 1.0, alpha: darkVariant ? 0.18 : 0.28) : nil
+    }
+
+    private func srgb(_ c: NSColor) -> NSColor { c.usingColorSpace(.sRGB) ?? c }
+
+    private func mix(_ a: NSColor, _ b: NSColor, _ amount: CGFloat) -> NSColor {
+        a.blended(withFraction: amount, of: b) ?? a
+    }
+
+    static func == (l: IconStyle, r: IconStyle) -> Bool {
+        l.kind == r.kind && l.darkVariant == r.darkVariant && l.tint.isEqual(r.tint)
     }
 }
 

@@ -28,12 +28,14 @@ struct KairosApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var updater: SPUStandardUpdaterController?
     private var clockTimer: Timer?
+    private var appearanceObservers: [Any] = []
 
     func applicationDidFinishLaunching(_ note: Notification) {
         // A standalone window app, not an agent: it belongs in the Dock and quits with its window.
         NSApp.setActivationPolicy(.regular)
         updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
         startDockClock()
+        followIconStyle()
     }
 
     // ── the Dock icon tells the time ────────────────────────────────────────
@@ -61,8 +63,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func tickDockClock() {
         // 512 is plenty: the Dock scales down, and no Dock tile is larger than this even on a Retina display
-        // with the size slider at maximum.
-        NSApp.applicationIconImage = IconRenderer.draw(size: 512, date: Date())
+        // with the size slider at maximum. The style is read every time, so a change in System Settings
+        // shows within a minute at worst.
+        let style = IconStyle.current(appearance: NSApp.effectiveAppearance)
+        NSApp.applicationIconImage = IconRenderer.draw(size: 512, date: Date(), style: style)
+    }
+
+    /// Redraw at once when light or dark mode changes (which Automatic styles follow) or when the icon
+    /// style itself changes, rather than waiting for the next minute.
+    private func followIconStyle() {
+        appearanceObservers.append(NSApp.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
+            DispatchQueue.main.async { self?.tickDockClock() }
+        })
+        appearanceObservers.append(DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("AppleInterfaceThemeChangedNotification"), object: nil, queue: .main
+        ) { [weak self] _ in self?.tickDockClock() })
+        appearanceObservers.append(UserDefaults.standard.observe(\.appleIconAppearanceTheme, options: [.new]) { [weak self] _, _ in
+            DispatchQueue.main.async { self?.tickDockClock() }
+        })
     }
 
     /// FALSE, and the live Dock clock is the reason. Terminating on last-window-close is a reasonable
@@ -100,4 +118,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func showAbout() {
         JorvikAboutView.showWindow(appName: "Kairos", repoName: "Kairos", productPage: "apps/kairos")
     }
+}
+
+/// The icon style setting, for key-value observation. Changes made in System Settings reach this
+/// process through cfprefsd; the per-minute redraw catches any that do not.
+extension UserDefaults {
+    @objc dynamic var appleIconAppearanceTheme: String? { string(forKey: "AppleIconAppearanceTheme") }
 }
