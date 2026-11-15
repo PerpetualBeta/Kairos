@@ -216,9 +216,9 @@ struct IconStyle: Equatable {
     }
 
     // ── colours ──────────────────────────────────────────────────────────────
-    // Clear is measured, not guessed: on a Mac set to ClearLight, Jorvik's other Dock tiles were
-    // the Dock darkened by black at about 25 % (top) to 45 % (bottom), and their symbols white at
-    // about 60 %. ClearDark is the same recipe, darker.
+    // ClearLight is measured from a Dock screenshot, against the Dock colour beside each tile: the
+    // other tiles are frosted, LIGHTER than the Dock (white at about 30 %, flat, no gradient), with
+    // symbols white at about 70 to 95 % and a faint dark edge. ClearDark is not measured yet.
 
     /// Background, top and bottom.
     var background: (top: NSColor, bottom: NSColor) {
@@ -229,7 +229,7 @@ struct IconStyle: Equatable {
             return (NSColor(white: 0.21, alpha: 1), NSColor(white: 0.11, alpha: 1))
         case .clear:
             return darkVariant ? (NSColor(white: 0, alpha: 0.45), NSColor(white: 0, alpha: 0.62))
-                               : (NSColor(white: 0, alpha: 0.25), NSColor(white: 0, alpha: 0.45))
+                               : (NSColor(white: 1, alpha: 0.30), NSColor(white: 1, alpha: 0.30))
         case .tinted:
             let t = srgb(tint)
             return darkVariant ? (mix(t, .black, 0.78), mix(t, .black, 0.88))
@@ -242,7 +242,7 @@ struct IconStyle: Equatable {
         switch kind {
         case .regular: return NSColor(white: 1.0, alpha: 0.92)
         case .dark:    return mix(srgb(IconRenderer.brandBlue), .white, 0.55)
-        case .clear:   return NSColor(white: 1.0, alpha: darkVariant ? 0.60 : 0.66)
+        case .clear:   return NSColor(white: 1.0, alpha: darkVariant ? 0.60 : 0.80)
         case .tinted:
             let t = srgb(tint)
             return darkVariant ? mix(t, .white, 0.55) : mix(t, .black, 0.10)
@@ -255,9 +255,11 @@ struct IconStyle: Equatable {
     /// The brand icon's radial glow suits only the brand blue; on glass or a tint it reads as a smudge.
     var glow: Bool { kind == .regular }
 
-    /// A hairline highlight round the edge, which glass tiles have.
+    /// A hairline round the edge, which glass tiles have: a highlight on dark glass, a faint
+    /// shadow on light glass.
     var rim: NSColor? {
-        kind == .clear ? NSColor(white: 1.0, alpha: darkVariant ? 0.18 : 0.28) : nil
+        guard kind == .clear else { return nil }
+        return darkVariant ? NSColor(white: 1.0, alpha: 0.18) : NSColor(white: 0, alpha: 0.12)
     }
 
     private func srgb(_ c: NSColor) -> NSColor { c.usingColorSpace(.sRGB) ?? c }
