@@ -127,19 +127,9 @@ Two details it gets right on your behalf:
   the point you choose, and offers a force fallback as an explicit decision rather than a default. Silently
   destroying unsaved work to keep to a schedule is the wrong trade.
 
-## The Dock icon tells the time
+## The icon
 
-While Kairos is running, its Dock icon is the real clock — redrawn on the minute, aligned to the minute
-boundary so it changes when the clock does rather than up to 59 seconds late.
-
-Only while it is running: `applicationIconImage` belongs to the running application, so Finder and a quit
-app's Dock tile still show the static icon. Apple's own Clock behaves the same way, for the same reason.
-
-Per minute, not per second — a second hand is a few pixels at Dock size and would cost a redraw every second
-to say nothing. The drawing is shared with the build-time icon generator rather than copied, so the two
-cannot drift.
-
-The live clock follows the icon style in System Settings › Appearance (Default, Dark, Clear or Tinted, in its light or dark form). macOS restyles an app's bundle icon itself, but it cannot restyle a picture the app draws, so Kairos reads the same setting (`AppleIconAppearanceTheme`) and draws the clock to match. It redraws at once when the style or light and dark mode changes, and on every minute anyway. To preview a style without changing System Settings: `defaults write cc.jorviksoftware.Kairos IconStyleOverride ClearDark`, then quit and reopen Kairos; `defaults delete cc.jorviksoftware.Kairos IconStyleOverride` to go back.
+The icon is the forelock of Kairos: the lock of hair you seize the moment by as it comes. It is a static icon, so macOS shows it in every icon style (Default, Dark, Clear and Tinted) the same way it shows any other app. Kairos used to draw a live clock in the Dock instead, but macOS applies those styles only to an app's bundle icon, never to an image the app draws while it runs, so the clock could never match the icons beside it. `generate_icon.swift` draws the icon; `gmake icon` writes it to `Resources/AppIcon.icns`.
 
 ## Scope
 
@@ -160,7 +150,6 @@ easy, daemons are the wrong tool anyway.
 | `JobBuilder.swift` | Writes the plists — command mode, and the launch/quit/guard trio for an app |
 | `JobEditor.swift` | The single configuration sheet, for both modes |
 | `ContentView.swift` | The two sidebar views, and the detail panes |
-| `IconRenderer.swift` | The clock, drawn — shared by the bundle icon and the live Dock icon |
 
 ## Building from Source
 

@@ -18,10 +18,7 @@ ENTITLEMENTS     := Kairos.entitlements
 
 include ../jorvik-release/release.mk
 
-# The icon is drawn by the SAME code the app uses at runtime, so it is compiled rather than run as a script.
-# `swift generate_icon.swift` cannot see Sources/, and a second copy of the drawing would drift.
+# Draws the app icon and writes Resources/AppIcon.icns.
 .PHONY: icon
 icon:
-	@mkdir -p .build/icongen && cp generate_icon.swift .build/icongen/main.swift
-	@swiftc -O Sources/IconRenderer.swift .build/icongen/main.swift -o .build/icongen/gen
-	@.build/icongen/gen
+	@swift generate_icon.swift
